@@ -12,6 +12,22 @@ const fs = require("fs")
 
 const PLATFORM = process.platform // 'darwin' | 'linux' | 'win32'
 
+function expandHomeDir(inputPath) {
+  if (!inputPath || typeof inputPath !== "string") return inputPath
+  if (inputPath === "~") return os.homedir()
+  if (inputPath.startsWith("~/")) {
+    return path.join(os.homedir(), inputPath.slice(2))
+  }
+  return inputPath
+}
+
+function firstExistingPath(candidates) {
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Cursor IDE paths
 // ---------------------------------------------------------------------------
@@ -21,12 +37,25 @@ const PLATFORM = process.platform // 'darwin' | 'linux' | 'win32'
  * Tries multiple known locations per OS.
  */
 function cursorWorkbenchPath() {
-  const suffix = "Resources/app/out/vs/workbench/workbench.desktop.main.js"
+  const override = expandHomeDir(process.env.CURSOR_WORKBENCH_PATH)
+  if (override) return override
+
+  const suffix = path.join(
+    "Resources",
+    "app",
+    "out",
+    "vs",
+    "workbench",
+    "workbench.desktop.main.js"
+  )
 
   const candidates = []
 
   if (PLATFORM === "darwin") {
-    candidates.push(path.join("/Applications/Cursor.app/Contents", suffix))
+    candidates.push(
+      path.join("/Applications/Cursor.app/Contents", suffix),
+      path.join(os.homedir(), "Applications", "Cursor.app", "Contents", suffix)
+    )
   } else if (PLATFORM === "linux") {
     candidates.push(
       path.join("/usr/share/cursor", suffix),
@@ -44,9 +73,8 @@ function cursorWorkbenchPath() {
     )
   }
 
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p
-  }
+  const resolved = firstExistingPath(candidates)
+  if (resolved) return resolved
 
   // Return the first candidate as default (will error at call site if missing)
   return candidates[0] || null
@@ -56,8 +84,20 @@ function cursorWorkbenchPath() {
  * Returns the Cursor executable path (for launching with debug logging).
  */
 function cursorBinaryPath() {
+  const override = expandHomeDir(process.env.CURSOR_BINARY_PATH)
+  if (override) return override
+
   if (PLATFORM === "darwin") {
-    return "/Applications/Cursor.app/Contents/MacOS/Cursor"
+    const candidates = [
+      "/Applications/Cursor.app/Contents/MacOS/Cursor",
+      path.join(
+        os.homedir(),
+        "Applications",
+        "Cursor.app",
+        "Contents/MacOS/Cursor"
+      ),
+    ]
+    return firstExistingPath(candidates) || candidates[0]
   }
   if (PLATFORM === "linux") {
     // Usually in PATH as 'cursor'
@@ -66,7 +106,11 @@ function cursorBinaryPath() {
   if (PLATFORM === "win32") {
     const localAppData =
       process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData/Local")
-    return path.join(localAppData, "Programs/cursor/Cursor.exe")
+    const candidates = [
+      path.join(localAppData, "Programs/cursor/Cursor.exe"),
+      path.join(localAppData, "cursor", "Cursor.exe"),
+    ]
+    return firstExistingPath(candidates) || candidates[0]
   }
   return "cursor"
 }
@@ -200,4 +244,5 @@ module.exports = {
   sudoPrefix,
   isElevated,
   mitmdumpCandidates,
+  expandHomeDir,
 }

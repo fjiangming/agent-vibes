@@ -147,11 +147,12 @@ agent-vibes forward status
 
 本地开发默认可零配置启动。部署到服务器时，请在 `apps/protocol-bridge/.env.local` 中配置：
 
-| 变量                  | 默认值               | 说明                        |
-| --------------------- | -------------------- | --------------------------- |
-| `PORT`                | `8000`               | 服务端口                    |
-| `PROXY_API_KEY`       | _(disabled)_         | 为所有请求启用 API Key 校验 |
-| `ANTIGRAVITY_STORAGE` | `~/.protocol-bridge` | Antigravity 凭据目录        |
+| 变量                   | 默认值               | 说明                        |
+| ---------------------- | -------------------- | --------------------------- |
+| `PORT`                 | `8000`               | 服务端口                    |
+| `PROXY_API_KEY`        | _(disabled)_         | 为所有请求启用 API Key 校验 |
+| `ANTIGRAVITY_STORAGE`  | `~/.protocol-bridge` | Antigravity 凭据目录        |
+| `ANTIGRAVITY_APP_PATH` | _(auto-detect)_      | 可选的 Antigravity.app 路径 |
 
 ## Codex 后端（GPT / O 系列模型）
 
@@ -280,6 +281,8 @@ npm run cursor:forward:on      # 开启端口转发（需要 sudo/admin）
 npm run cursor:forward:off     # 关闭端口转发（需要 sudo/admin）
 npm run cursor:forward:status  # 查看转发状态
 ```
+
+如果 Cursor 安装在非默认位置，可为这些工具脚本设置 `CURSOR_BINARY_PATH`、`CURSOR_WORKBENCH_PATH` 或 `CURSOR_APP_ROOT`。
 
 ### 部署
 

@@ -16,7 +16,7 @@
 
 const path = require("path")
 const fs = require("fs")
-const { execSync, spawnSync } = require("child_process")
+const { spawnSync } = require("child_process")
 
 const ROOT = path.resolve(__dirname, "..")
 const args = process.argv.slice(2)
@@ -35,7 +35,12 @@ if (args.includes("--version") || args.includes("-v")) {
 }
 
 // --help
-if (args.includes("--help") || args.includes("-h") || command === "help") {
+if (
+  command === "help" ||
+  command === "--help" ||
+  command === "-h" ||
+  (!command && (args.includes("--help") || args.includes("-h")))
+) {
   console.log(`
 agent-vibes — Unified Agent Gateway
 
@@ -63,28 +68,45 @@ Environment Variables:
   PORT                  Server port (default: 8000)
   PROXY_API_KEY         API key for authentication
   ANTIGRAVITY_STORAGE   Path to Antigravity credentials
+  ANTIGRAVITY_APP_PATH  Optional Antigravity.app override
+  CURSOR_BINARY_PATH    Optional Cursor binary override
+  CURSOR_WORKBENCH_PATH Optional Cursor workbench override
 
 Documentation: https://github.com/funny-vibes/agent-vibes
 `)
   process.exit(0)
 }
 
-// Sub-commands
-function run(cmd, opts = {}) {
-  const result = spawnSync("bash", ["-c", cmd], {
+function run(commandName, commandArgs, opts = {}) {
+  const result = spawnSync(commandName, commandArgs, {
     cwd: ROOT,
     stdio: "inherit",
     ...opts,
   })
-  process.exit(result.status || 0)
+  if (result.error) {
+    console.error(result.error.message)
+    process.exit(1)
+  }
+  process.exit(result.status ?? 1)
+}
+
+function nodeScript(scriptPath, scriptArgs = [], opts = {}) {
+  run(process.execPath, [path.join(ROOT, scriptPath), ...scriptArgs], opts)
+}
+
+function tsxScript(scriptPath, scriptArgs = [], opts = {}) {
+  run(
+    process.execPath,
+    ["--import", "tsx", path.join(ROOT, scriptPath), ...scriptArgs],
+    opts
+  )
 }
 
 if (command === "sync") {
-  const syncArgs = args.slice(1).join(" ")
   if (args.includes("--codex")) {
-    run(`node scripts/accounts/sync-codex-account.js`)
+    nodeScript("scripts/accounts/sync-codex-account.js")
   } else {
-    run(`node scripts/accounts/sync-antigravity-accounts.js ${syncArgs}`)
+    nodeScript("scripts/accounts/sync-antigravity-accounts.js", args.slice(1))
   }
 }
 
@@ -94,15 +116,59 @@ if (command === "cert") {
     fs.mkdirSync(certDir, { recursive: true })
   }
   run(
-    `cd apps/protocol-bridge/certs && mkcert -cert-file localhost.crt -key-file localhost.key localhost '*.api5.cursor.sh' '*.cursor.sh' api2.cursor.sh api2geo.cursor.sh api2direct.cursor.sh agent.api2.cursor.sh agentn.api2.cursor.sh agent.api2geo.cursor.sh agentn.api2geo.cursor.sh agent.api2direct.cursor.sh agentn.api2direct.cursor.sh agent.api5.cursor.sh agentn.api5.cursor.sh agent.api5geo.cursor.sh agent.api5lat.cursor.sh agentn.api5geo.cursor.sh agentn.api5lat.cursor.sh agent-gcpp-uswest.api5.cursor.sh agent-gcpp-eucentral.api5.cursor.sh agent-gcpp-apsoutheast.api5.cursor.sh agentn-gcpp-uswest.api5.cursor.sh agentn-gcpp-eucentral.api5.cursor.sh agentn-gcpp-apsoutheast.api5.cursor.sh agent.us.api5.cursor.sh agent.eu.api5.cursor.sh agent.ap.api5.cursor.sh agentn.us.api5.cursor.sh agentn.eu.api5.cursor.sh agentn.ap.api5.cursor.sh a.cursor.sh 127.0.0.1 127.0.0.2 127.0.0.3 ::1`
+    "mkcert",
+    [
+      "-cert-file",
+      "localhost.crt",
+      "-key-file",
+      "localhost.key",
+      "localhost",
+      "*.api5.cursor.sh",
+      "*.cursor.sh",
+      "api2.cursor.sh",
+      "api2geo.cursor.sh",
+      "api2direct.cursor.sh",
+      "agent.api2.cursor.sh",
+      "agentn.api2.cursor.sh",
+      "agent.api2geo.cursor.sh",
+      "agentn.api2geo.cursor.sh",
+      "agent.api2direct.cursor.sh",
+      "agentn.api2direct.cursor.sh",
+      "agent.api5.cursor.sh",
+      "agentn.api5.cursor.sh",
+      "agent.api5geo.cursor.sh",
+      "agent.api5lat.cursor.sh",
+      "agentn.api5geo.cursor.sh",
+      "agentn.api5lat.cursor.sh",
+      "agent-gcpp-uswest.api5.cursor.sh",
+      "agent-gcpp-eucentral.api5.cursor.sh",
+      "agent-gcpp-apsoutheast.api5.cursor.sh",
+      "agentn-gcpp-uswest.api5.cursor.sh",
+      "agentn-gcpp-eucentral.api5.cursor.sh",
+      "agentn-gcpp-apsoutheast.api5.cursor.sh",
+      "agent.us.api5.cursor.sh",
+      "agent.eu.api5.cursor.sh",
+      "agent.ap.api5.cursor.sh",
+      "agentn.us.api5.cursor.sh",
+      "agentn.eu.api5.cursor.sh",
+      "agentn.ap.api5.cursor.sh",
+      "a.cursor.sh",
+      "127.0.0.1",
+      "127.0.0.2",
+      "127.0.0.3",
+      "::1",
+    ],
+    { cwd: certDir }
   )
 }
 
 if (command === "patch") {
-  const patchArgs = args.slice(1).join(" ")
-  run(
-    `NO_PROXY='127.0.0.1,localhost,127.0.0.2,*.cursor.sh,*.azureedge.net' npx ts-node scripts/cursor/patch_transport.ts ${patchArgs}`
-  )
+  tsxScript("scripts/cursor/patch_transport.ts", args.slice(1), {
+    env: {
+      ...process.env,
+      NO_PROXY: "127.0.0.1,localhost,127.0.0.2,*.cursor.sh,*.azureedge.net",
+    },
+  })
 }
 
 if (command === "forward") {
@@ -110,18 +176,17 @@ if (command === "forward") {
   if (subCmd === "on" || subCmd === "off") {
     if (process.platform === "win32") {
       // Windows: node script checks for admin internally
-      run(`node scripts/proxy/setup-forwarding.js ${subCmd}`)
+      nodeScript("scripts/proxy/setup-forwarding.js", [subCmd])
     } else {
-      run(`sudo node scripts/proxy/setup-forwarding.js ${subCmd}`)
+      run("sudo", [process.execPath, path.join(ROOT, "scripts/proxy/setup-forwarding.js"), subCmd])
     }
   } else {
-    run(`node scripts/proxy/setup-forwarding.js ${subCmd}`)
+    nodeScript("scripts/proxy/setup-forwarding.js", [subCmd])
   }
 }
 
 if (command === "issues") {
-  const issueArgs = args.slice(1).join(" ")
-  run(`node scripts/diagnostics/collect-issue-logs.js ${issueArgs}`)
+  nodeScript("scripts/diagnostics/collect-issue-logs.js", args.slice(1))
 }
 
 // Default: start server

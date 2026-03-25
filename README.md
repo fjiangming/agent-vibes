@@ -69,9 +69,18 @@ CLIProxyAPI is the closest reference project for this repo, but the focus is dif
 CLIProxyAPI is primarily API-first and CLI-oriented. Agent Vibes puts its main weight on
 native client compatibility for Cursor and native upstream fidelity for Antigravity.
 
-- **Cursor:** instead of stopping at OpenAI/Claude-compatible endpoints, Agent Vibes reverse-engineers Cursor's native ConnectRPC/gRPC agent channel, extracts protobuf definitions from Cursor binaries, and implements the streaming tool loop directly.
-- **Antigravity:** this repo's main Antigravity path is a newer worker-native anti-ban-oriented approach, built around running Antigravity's own runtime and modules so Cloud Code requests keep the IDE's native fingerprint, with quota-aware worker rotation around that model.
-- **Implementation:** large parts of the codebase port, transplant, and adapt ideas or source code from CLIProxyAPI and many other open-source projects, then rebuild them in a TypeScript/NestJS architecture. The project itself was put together end-to-end in a vibe-coding workflow.
+- **Cursor:** instead of stopping at OpenAI/Claude-compatible endpoints,
+  Agent Vibes reverse-engineers Cursor's native ConnectRPC/gRPC agent channel,
+  extracts protobuf definitions from Cursor binaries, and implements the
+  streaming tool loop directly.
+- **Antigravity:** this repo's main Antigravity path is a newer
+  worker-native anti-ban-oriented approach, built around running
+  Antigravity's own runtime and modules so Cloud Code requests keep the IDE's
+  native fingerprint, with quota-aware worker rotation around that model.
+- **Implementation:** large parts of the codebase port, transplant, and adapt
+  ideas or source code from CLIProxyAPI and many other open-source projects,
+  then rebuild them in a TypeScript/NestJS architecture. The project itself
+  was put together end-to-end in a vibe-coding workflow.
 
 ## Quick Start
 
@@ -146,17 +155,20 @@ Verify everything is working:
 agent-vibes forward status
 ```
 
-> **Tip:** When Cursor is using GPT / O-series / Codex models through the Codex backend, normal thinking loads the standard reasoning tier. To load the highest Codex tier, enable `Thinking` and `Max mode` together.
+> **Tip:** When Cursor is using GPT / O-series / Codex models through the
+> Codex backend, normal thinking loads the standard reasoning tier. To load
+> the highest Codex tier, enable `Thinking` and `Max mode` together.
 
 ### Environment Variables
 
 Zero-config for local dev. For server deployment, configure in `apps/protocol-bridge/.env.local`:
 
-| Variable              | Default              | Description                      |
-| --------------------- | -------------------- | -------------------------------- |
-| `PORT`                | `8000`               | Server port                      |
-| `PROXY_API_KEY`       | _(disabled)_         | Require API key for all requests |
-| `ANTIGRAVITY_STORAGE` | `~/.protocol-bridge` | Path to Antigravity credentials  |
+| Variable               | Default              | Description                      |
+| ---------------------- | -------------------- | -------------------------------- |
+| `PORT`                 | `8000`               | Server port                      |
+| `PROXY_API_KEY`        | _(disabled)_         | Require API key for all requests |
+| `ANTIGRAVITY_STORAGE`  | `~/.protocol-bridge` | Path to Antigravity credentials  |
+| `ANTIGRAVITY_APP_PATH` | _(auto-detect)_      | Optional Antigravity.app path    |
 
 ## Codex Backend (GPT / O-series Models)
 
@@ -285,6 +297,8 @@ npm run cursor:forward:on      # Enable port forwarding (requires sudo/admin)
 npm run cursor:forward:off     # Disable port forwarding (requires sudo/admin)
 npm run cursor:forward:status  # Show forwarding status
 ```
+
+If Cursor is installed in a non-standard location, set `CURSOR_BINARY_PATH`, `CURSOR_WORKBENCH_PATH`, or `CURSOR_APP_ROOT` for the tooling scripts.
 
 ### Deployment
 

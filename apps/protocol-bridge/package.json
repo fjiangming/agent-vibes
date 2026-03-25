@@ -15,10 +15,10 @@
     "lint": "eslint \"{src,test}/**/*.{js,ts}\"",
     "lint:fix": "eslint \"{src,test}/**/*.{js,ts}\" --fix",
     "test": "jest --passWithNoTests",
-    "clean": "rm -rf dist node_modules .turbo",
+    "clean": "node ../../scripts/rm-paths.js dist node_modules .turbo",
     "types": "tsc --noEmit -p tsconfig.build.json",
-    "proto:extract": "node ../../scripts/cursor-static-analysis/cursor_proto_extractor.js --output-json && node ../../scripts/cursor-static-analysis/proto_fixer.js && rm -rf proto && cp -r /tmp/cursor_proto_extract/proto proto",
-    "proto:gen": "rm -rf src/gen && buf generate",
+    "proto:extract": "node ../../scripts/cursor-static-analysis/cursor_proto_extractor.js --output-json && node ../../scripts/cursor-static-analysis/proto_fixer.js && node ../../scripts/cursor-static-analysis/sync-extracted-proto.js proto",
+    "proto:gen": "node ../../scripts/rm-paths.js src/gen && buf generate",
     "proto:all": "npm run proto:extract && npm run proto:gen"
   },
   "dependencies": {

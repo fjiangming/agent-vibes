@@ -7,6 +7,7 @@ import {
 import { ConfigService } from "@nestjs/config"
 import { ChildProcess, spawn } from "child_process"
 import * as fs from "fs"
+import * as os from "os"
 import * as path from "path"
 import * as readline from "readline"
 
@@ -56,25 +57,41 @@ interface WorkerHandle {
   readyResolve?: () => void // event-driven ready notification
 }
 
-// ---------------------------------------------------------------------------
-// Antigravity binary paths
-// ---------------------------------------------------------------------------
-const ANTIGRAVITY_NODE_BINARY = path.join(
-  "/Applications/Antigravity.app",
-  "Contents/Frameworks",
+const WORKER_SCRIPT = path.resolve(__dirname, "worker.js")
+
+const ANTIGRAVITY_HELPER_RELATIVE_PATH = path.join(
+  "Contents",
+  "Frameworks",
   "Antigravity Helper (Plugin).app",
-  "Contents/MacOS",
+  "Contents",
+  "MacOS",
   "Antigravity Helper (Plugin)"
 )
 
-const WORKER_SCRIPT = path.resolve(__dirname, "worker.js")
-
-// Antigravity's node_modules for MODULE_PATH resolution
-const ANTIGRAVITY_NODE_MODULES = path.join(
-  "/Applications/Antigravity.app",
-  "Contents/Resources/app",
+const ANTIGRAVITY_NODE_MODULES_RELATIVE_PATH = path.join(
+  "Contents",
+  "Resources",
+  "app",
   "node_modules"
 )
+
+function expandHomeDir(inputPath: string): string {
+  if (inputPath === "~") return os.homedir()
+  if (inputPath.startsWith("~/")) {
+    return path.join(os.homedir(), inputPath.slice(2))
+  }
+  return inputPath
+}
+
+function resolveAppBundlePaths(appPath: string): {
+  nodeBinary: string
+  nodeModules: string
+} {
+  return {
+    nodeBinary: path.join(appPath, ANTIGRAVITY_HELPER_RELATIVE_PATH),
+    nodeModules: path.join(appPath, ANTIGRAVITY_NODE_MODULES_RELATIVE_PATH),
+  }
+}
 
 /**
  * ProcessPoolService — Manages a pool of Antigravity native worker processes
@@ -91,19 +108,23 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   private readonly workers: WorkerHandle[] = []
   private currentWorkerIndex = -1
   private requestCounter = 0
+  private antigravityNodeBinary: string | null = null
+  private antigravityNodeModules: string | null = null
 
   constructor(private readonly configService: ConfigService) {}
 
   async onModuleInit(): Promise<void> {
     this.logger.log("Initializing native process pool...")
 
-    // Verify Antigravity binary exists
-    if (!fs.existsSync(ANTIGRAVITY_NODE_BINARY)) {
-      this.logger.error(
-        `Antigravity binary not found: ${ANTIGRAVITY_NODE_BINARY}`
-      )
+    const runtimePaths = this.resolveAntigravityRuntimePaths()
+    if (!runtimePaths) {
       return
     }
+    this.antigravityNodeBinary = runtimePaths.nodeBinary
+    this.antigravityNodeModules = runtimePaths.nodeModules
+    this.logger.log(
+      `Using Antigravity runtime: ${runtimePaths.nodeBinary} (NODE_PATH=${runtimePaths.nodeModules})`
+    )
 
     // Verify worker script exists
     if (!fs.existsSync(WORKER_SCRIPT)) {
@@ -128,6 +149,69 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
 
     // Pre-flight quota check: test each worker and cooldown exhausted ones
     await this.preflightQuotaCheck()
+  }
+
+  private resolveAntigravityRuntimePaths(): {
+    nodeBinary: string
+    nodeModules: string
+  } | null {
+    const envBinary = this.configService.get<string>("ANTIGRAVITY_NODE_BINARY")
+    const envModules = this.configService.get<string>(
+      "ANTIGRAVITY_NODE_MODULES"
+    )
+    const envAppPath = this.configService.get<string>("ANTIGRAVITY_APP_PATH")
+
+    if (envBinary && envModules) {
+      const nodeBinary = expandHomeDir(envBinary.trim())
+      const nodeModules = expandHomeDir(envModules.trim())
+      if (!fs.existsSync(nodeBinary)) {
+        this.logger.error(
+          `Configured ANTIGRAVITY_NODE_BINARY does not exist: ${nodeBinary}`
+        )
+        return null
+      }
+      if (!fs.existsSync(nodeModules)) {
+        this.logger.error(
+          `Configured ANTIGRAVITY_NODE_MODULES does not exist: ${nodeModules}`
+        )
+        return null
+      }
+      return { nodeBinary, nodeModules }
+    }
+
+    if (envBinary || envModules) {
+      this.logger.error(
+        "ANTIGRAVITY_NODE_BINARY and ANTIGRAVITY_NODE_MODULES must be set together"
+      )
+      return null
+    }
+
+    const appCandidates = [
+      envAppPath?.trim(),
+      "/Applications/Antigravity.app",
+      path.join(os.homedir(), "Applications", "Antigravity.app"),
+    ]
+      .filter((candidate): candidate is string => Boolean(candidate))
+      .map((candidate) => expandHomeDir(candidate))
+
+    for (const appPath of appCandidates) {
+      const resolved = resolveAppBundlePaths(appPath)
+      if (
+        fs.existsSync(resolved.nodeBinary) &&
+        fs.existsSync(resolved.nodeModules)
+      ) {
+        return resolved
+      }
+    }
+
+    this.logger.error(
+      [
+        "Antigravity runtime not found.",
+        "Set ANTIGRAVITY_APP_PATH to the .app bundle, or set both ANTIGRAVITY_NODE_BINARY and ANTIGRAVITY_NODE_MODULES.",
+        `Checked app bundles: ${appCandidates.join(", ")}`,
+      ].join(" ")
+    )
+    return null
   }
 
   /**
@@ -221,12 +305,16 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
    * Spawn a native worker process for the given account
    */
   private async spawnWorker(account: NativeAccount): Promise<void> {
-    const child = spawn(ANTIGRAVITY_NODE_BINARY, [WORKER_SCRIPT], {
+    if (!this.antigravityNodeBinary || !this.antigravityNodeModules) {
+      throw new Error("Antigravity runtime paths not initialized")
+    }
+
+    const child = spawn(this.antigravityNodeBinary, [WORKER_SCRIPT], {
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",
-        NODE_PATH: ANTIGRAVITY_NODE_MODULES,
+        NODE_PATH: this.antigravityNodeModules,
         NODE_OPTIONS: "",
       },
     })
@@ -606,7 +694,9 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
     })
     if (readyWorkers.length === 0) return null
 
-    const available = readyWorkers.filter((worker) => worker.cooldownUntil <= now)
+    const available = readyWorkers.filter(
+      (worker) => worker.cooldownUntil <= now
+    )
     return available[0] ?? readyWorkers[0] ?? null
   }
 

@@ -8,7 +8,7 @@
  *   npm run antigravity:sync -- --tools     Extract from Antigravity Tools (~/.antigravity_tools)
  */
 
-const { execSync } = require("child_process")
+const Database = require("better-sqlite3")
 const fs = require("fs")
 const path = require("path")
 const os = require("os")
@@ -62,11 +62,27 @@ function fromIDE() {
     process.exit(1)
   }
 
-  // Read auth status (email, name)
-  const authRaw = execSync(
-    `sqlite3 '${DB}' "SELECT value FROM ItemTable WHERE key = 'antigravityAuthStatus';"`,
-    { encoding: "utf-8" }
-  ).trim()
+  const db = new Database(DB, { readonly: true, fileMustExist: true })
+  let authRaw = ""
+  let oauthB64 = ""
+
+  try {
+    const authRow = db
+      .prepare("SELECT value FROM ItemTable WHERE key = ?")
+      .get("antigravityAuthStatus")
+    authRaw =
+      authRow && typeof authRow.value === "string" ? authRow.value.trim() : ""
+
+    const oauthRow = db
+      .prepare("SELECT value FROM ItemTable WHERE key = ?")
+      .get("antigravityUnifiedStateSync.oauthToken")
+    oauthB64 =
+      oauthRow && typeof oauthRow.value === "string"
+        ? oauthRow.value.trim()
+        : ""
+  } finally {
+    db.close()
+  }
 
   if (!authRaw) {
     console.error("❌ Not logged in — no antigravityAuthStatus found")
@@ -78,12 +94,6 @@ function fromIDE() {
     console.error("❌ No email in antigravityAuthStatus")
     process.exit(1)
   }
-
-  // Read OAuth token (base64 protobuf)
-  const oauthB64 = execSync(
-    `sqlite3 '${DB}' "SELECT value FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.oauthToken';"`,
-    { encoding: "utf-8" }
-  ).trim()
 
   if (!oauthB64) {
     console.error("❌ No OAuth token found in state.vscdb")

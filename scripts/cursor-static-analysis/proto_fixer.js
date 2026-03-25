@@ -16,11 +16,13 @@
 const fs = require("fs")
 const path = require("path")
 const { execSync } = require("child_process")
+const { resolveCursorProtoExtractDir } = require("./paths")
 
 // 配置
-const INPUT = "/tmp/cursor_proto_extract/cursor_schema.json"
-const PROTO_DIR = "/tmp/cursor_proto_extract/proto"
-const COMBINED_OUTPUT = "/tmp/cursor_proto_extract/cursor.proto"
+const OUTPUT_DIR = resolveCursorProtoExtractDir()
+const INPUT = path.join(OUTPUT_DIR, "cursor_schema.json")
+const PROTO_DIR = path.join(OUTPUT_DIR, "proto")
+const COMBINED_OUTPUT = path.join(OUTPUT_DIR, "cursor.proto")
 
 const SCALAR_TYPES = new Set([
   "double",

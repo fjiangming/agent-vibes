@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "types": "echo 'No TypeScript files to check'",
-    "clean": "rm -rf .turbo node_modules"
+    "clean": "node ../../scripts/rm-paths.js .turbo node_modules"
   },
   "publishConfig": {
     "access": "public"

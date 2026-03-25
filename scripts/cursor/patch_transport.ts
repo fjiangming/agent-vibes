@@ -6,7 +6,7 @@
  * This intercepts requests and responses at a lower level than application-specific patches.
  *
  * Usage:
- *   npx ts-node scripts/cursor/patch_transport.ts [--restore] [--status]
+ *   node --import tsx scripts/cursor/patch_transport.ts [--restore] [--status]
  */
 
 import * as fs from "fs"
@@ -275,7 +275,7 @@ async function main(): Promise<void> {
 Cursor Transport Layer Patcher
 
 Usage:
-  npx ts-node scripts/cursor/patch_transport.ts [options]
+  agent-vibes patch [options]
 
 Options:
   --restore      Restore original file from backup
@@ -296,16 +296,8 @@ This patches at the transport layer to capture ALL network traffic.
   const cursorBin = platform.cursorBinaryPath()
   console.log("\n" + "=".repeat(60))
   console.log("Transport layer patches applied!")
-  console.log("To capture logs, run:")
-  if (platform.PLATFORM === "win32") {
-    console.log(
-      `  set ELECTRON_ENABLE_LOGGING=1 && "${cursorBin}" 2>&1 | tee %TEMP%\\cursor_grpc.log`
-    )
-  } else {
-    console.log(
-      `  ELECTRON_ENABLE_LOGGING=1 ${cursorBin} 2>&1 | mkdir -p .log && tee .log/cursor_grpc.log &`
-    )
-  }
+  console.log("To capture logs, run: npm run cursor:debug")
+  console.log(`Cursor binary: ${cursorBin}`)
   console.log("=".repeat(60))
 }
 

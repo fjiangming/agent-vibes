@@ -23,7 +23,7 @@
  *   --filter <pkg>    仅输出指定包（如 agent.v1, aiserver.v1）
  *   --stats           仅输出统计信息
  *
- * 输出文件（保存到 /tmp/cursor_proto_extract/）：
+ * 输出文件（保存到系统临时目录下的 cursor_proto_extract/）：
  *   cursor.proto          完整 .proto 定义文件
  *   cursor_schema.json    结构化 JSON schema
  *   extraction_report.txt 提取报告
@@ -33,12 +33,23 @@
 
 const fs = require("fs")
 const path = require("path")
+const {
+  resolveCursorAppRoot,
+  resolveCursorProtoExtractDir,
+} = require("./paths")
 
 // ============================================================
 // 配置
 // ============================================================
 
-const CURSOR_APP_ROOT = "/Applications/Cursor.app/Contents/Resources/app"
+const CURSOR_APP_ROOT = resolveCursorAppRoot()
+if (!CURSOR_APP_ROOT || !fs.existsSync(CURSOR_APP_ROOT)) {
+  console.error("Error: Cursor app root not found.")
+  console.error(
+    "Set CURSOR_APP_ROOT or CURSOR_WORKBENCH_PATH if Cursor is installed in a non-standard location."
+  )
+  process.exit(1)
+}
 
 // 动态构建 bundle 路径列表
 function discoverBundlePaths() {
@@ -70,7 +81,7 @@ function discoverBundlePaths() {
 
 const BUNDLE_PATHS = discoverBundlePaths()
 
-const OUTPUT_DIR = "/tmp/cursor_proto_extract"
+const OUTPUT_DIR = resolveCursorProtoExtractDir()
 
 // Protobuf scalar type 编号映射
 const SCALAR_TYPES = {
@@ -146,7 +157,7 @@ function loadBundles() {
       continue
     }
     const content = fs.readFileSync(bundlePath, "utf-8")
-    const basename = bundlePath.replace(CURSOR_APP_ROOT + "/", "")
+    const basename = path.relative(CURSOR_APP_ROOT, bundlePath)
     const sizeMB = (content.length / 1024 / 1024).toFixed(2)
     loaded.push({ path: bundlePath, basename, content, sizeMB })
     schema.metadata.bundlesScanned.push({ path: basename, sizeMB })
