@@ -6640,7 +6640,7 @@ export class CursorConnectStreamService {
       cursorModel: string
       backendModel: string
     }
-  ): AsyncGenerator<Buffer> {
+  ): Generator<Buffer> {
     const errorMessage = error instanceof Error ? error.message : String(error)
     const summary =
       `Tool ${context.toolName} (${context.toolCallId}) completed, ` +

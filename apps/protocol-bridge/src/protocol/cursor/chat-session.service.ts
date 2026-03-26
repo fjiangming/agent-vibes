@@ -200,7 +200,7 @@ interface PersistedPendingToolCall {
   toolCallId: string
   toolName: string
   toolInput: Record<string, unknown>
-  toolFamilyHint?: "mcp"
+  toolFamilyHint?: "mcp" | "edit"
   modelCallId: string
   startedEmitted: boolean
   sentAt: number

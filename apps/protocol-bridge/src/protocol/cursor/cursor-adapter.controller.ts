@@ -1,7 +1,8 @@
-import { create, toBinary } from "@bufbuild/protobuf"
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf"
 import { Controller, Logger, Post, Req, Res } from "@nestjs/common"
 import { FastifyReply, FastifyRequest } from "fastify"
 import { CodexService } from "../../llm/codex/codex.service"
+import { OpenaiCompatService } from "../../llm/openai-compat/openai-compat.service"
 import { getCursorDisplayModels } from "../../llm/model-registry"
 import { connectRPCHandler } from "./connect-rpc-handler"
 import { CursorConnectStreamService } from "./cursor-connect-stream.service"
@@ -11,10 +12,15 @@ import {
   ModelDetailsSchema,
   NameAgentResponseSchema,
 } from "../../gen/agent/v1_pb"
+import {
+  GetDiffReviewRequestSchema,
+  StreamDiffReviewResponseSchema,
+  type GetDiffReviewRequest_SimpleFileDiff,
+} from "../../gen/aiserver/v1_pb"
 
 /**
  * Cursor ConnectRPC Adapter Controller
- * Only exposes agent.v1 endpoints.
+ * Exposes agent.v1 and aiserver.v1 endpoints.
  */
 @Controller()
 export class CursorAdapterController {
@@ -22,7 +28,8 @@ export class CursorAdapterController {
 
   constructor(
     private readonly connectStreamService: CursorConnectStreamService,
-    private readonly codexService: CodexService
+    private readonly codexService: CodexService,
+    private readonly openaiCompatService: OpenaiCompatService
   ) {}
 
   /**
@@ -123,5 +130,138 @@ export class CursorAdapterController {
       .send(
         Buffer.from(toBinary(GetAllowedModelIntentsResponseSchema, response))
       )
+  }
+
+  // ── Diff Review ────────────────────────────────────────────────────────
+
+  /**
+   * aiserver.v1.AiService/StreamDiffReview — Code review via GPT
+   *
+   * Cursor sends a `GetDiffReviewRequest` containing file diffs.
+   * We build a code review prompt, stream the GPT response, and wrap
+   * each text delta as a ConnectRPC-framed `StreamDiffReviewResponse`.
+   */
+  @Post("aiserver.v1.AiService/StreamDiffReview")
+  async handleStreamDiffReview(
+    @Req() req: FastifyRequest,
+    @Res() res: FastifyReply
+  ): Promise<void> {
+    this.logger.log(">>> AiService/StreamDiffReview request received")
+
+    if (!this.openaiCompatService.isAvailable()) {
+      this.logger.error("OpenAI-compat backend not configured for review")
+      res.status(500).send({ error: "Review backend not configured" })
+      return
+    }
+
+    try {
+      // 1. Decode protobuf request
+      const rawBody = req.body as Buffer
+      const payload = connectRPCHandler.stripEnvelope(rawBody)
+      const reviewRequest = fromBinary(GetDiffReviewRequestSchema, payload)
+
+      const fileCount = reviewRequest.diffs.length
+      const model = reviewRequest.model || "gpt-4.1-mini"
+      this.logger.log(`Review request: ${fileCount} file(s), model=${model}`)
+
+      // 2. Build unified diff text from protobuf
+      const diffText = this.buildUnifiedDiff(reviewRequest.diffs)
+
+      // 3. Build code review prompt
+      const messages: Array<{
+        role: "system" | "user"
+        content: string
+      }> = [
+        {
+          role: "system",
+          content:
+            "You are an expert code reviewer. Review the following diff and provide concise, " +
+            "actionable feedback. Focus on: bugs, security issues, performance problems, " +
+            "code style, and naming. Use markdown formatting. Keep the review brief and to the point.",
+        },
+        {
+          role: "user",
+          content: `Please review the following code changes:\n\n\`\`\`diff\n${diffText}\n\`\`\``,
+        },
+      ]
+
+      // 4. Setup streaming response
+      connectRPCHandler.setupStreamingResponse(res)
+
+      // 5. Stream GPT response as StreamDiffReviewResponse frames
+      for await (const textDelta of this.openaiCompatService.streamSimpleCompletion(
+        model,
+        messages,
+        { temperature: 0.3 }
+      )) {
+        const responseMsg = create(StreamDiffReviewResponseSchema, {
+          response: { case: "text", value: textDelta },
+        })
+        const binary = toBinary(StreamDiffReviewResponseSchema, responseMsg)
+        const frame = connectRPCHandler.encodeMessage(Buffer.from(binary))
+        connectRPCHandler.writeMessage(res, frame)
+      }
+
+      connectRPCHandler.endStream(res)
+      this.logger.log(">>> StreamDiffReview completed successfully")
+    } catch (error) {
+      this.logger.error("Error in StreamDiffReview", error)
+      const errorMessage =
+        error instanceof Error ? error.message : String(error)
+      try {
+        connectRPCHandler.endStream(res, new Error(errorMessage))
+      } catch {
+        res.status(500).send({ error: errorMessage })
+      }
+    }
+  }
+
+  /**
+   * aiserver.v1.AiService/StreamDiffReviewByFile — Same as StreamDiffReview
+   * but with per-file grouping. We reuse the same logic (Cursor may call either).
+   */
+  @Post("aiserver.v1.AiService/StreamDiffReviewByFile")
+  async handleStreamDiffReviewByFile(
+    @Req() req: FastifyRequest,
+    @Res() res: FastifyReply
+  ): Promise<void> {
+    this.logger.log(
+      ">>> AiService/StreamDiffReviewByFile → delegating to StreamDiffReview"
+    )
+    return this.handleStreamDiffReview(req, res)
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────
+
+  /**
+   * Convert protobuf SimpleFileDiff[] to unified diff text
+   */
+  private buildUnifiedDiff(
+    diffs: GetDiffReviewRequest_SimpleFileDiff[]
+  ): string {
+    const parts: string[] = []
+
+    for (const file of diffs) {
+      parts.push(`--- a/${file.relativeWorkspacePath}`)
+      parts.push(`+++ b/${file.relativeWorkspacePath}`)
+
+      for (const chunk of file.chunks) {
+        const oldStart = chunk.oldRange?.startLineNumber ?? 1
+        const oldCount = chunk.oldLines.length
+        const newStart = chunk.newRange?.startLineNumber ?? 1
+        const newCount = chunk.newLines.length
+
+        parts.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`)
+
+        for (const line of chunk.oldLines) {
+          parts.push(`-${line}`)
+        }
+        for (const line of chunk.newLines) {
+          parts.push(`+${line}`)
+        }
+      }
+    }
+
+    return parts.join("\n")
   }
 }

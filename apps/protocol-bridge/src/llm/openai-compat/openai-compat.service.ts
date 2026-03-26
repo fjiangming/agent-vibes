@@ -444,6 +444,91 @@ export class OpenaiCompatService implements OnModuleInit {
     }
   }
 
+  // ── Simple streaming completion (no Anthropic translation) ──────────
+
+  /**
+   * Stream a simple chat completion request directly, yielding text deltas.
+   * Used for non-chat features like diff review that don't need Anthropic translation.
+   */
+  async *streamSimpleCompletion(
+    model: string,
+    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    options?: { temperature?: number; max_tokens?: number }
+  ): AsyncGenerator<string> {
+    if (!this.isAvailable()) {
+      throw new Error("OpenAI-compatible backend not configured")
+    }
+
+    const url = this.buildUrl()
+    const headers = this.buildHeaders(true)
+    const body: ChatCompletionRequest = {
+      model,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+    }
+    if (options?.temperature != null) body.temperature = options.temperature
+    if (options?.max_tokens != null) body.max_tokens = options.max_tokens
+
+    const fetchOptions: RequestInit = {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    }
+    const agent = this.buildProxyAgent()
+    if (agent) {
+      ;(fetchOptions as Record<string, unknown>).agent = agent
+    }
+
+    this.logger.log(
+      `[SimpleCompletion] Streaming request to ${url} (model=${model})`
+    )
+
+    const response = await fetch(url, fetchOptions)
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(
+        `OpenAI-compatible API error ${response.status}: ${errorBody}`
+      )
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error("No response body reader")
+
+    const decoder = new TextDecoder()
+    let buffer = ""
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() || ""
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed.startsWith("data: ")) continue
+          const data = trimmed.slice(6)
+          if (data === "[DONE]") return
+
+          try {
+            const parsed = JSON.parse(data) as {
+              choices?: Array<{ delta?: { content?: string } }>
+            }
+            const content = parsed.choices?.[0]?.delta?.content
+            if (content) yield content
+          } catch {
+            // skip malformed chunks
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
+
   // ── URL builder ──────────────────────────────────────────────────────
 
   private buildUrl(): string {
