@@ -3129,6 +3129,8 @@ export class CursorGrpcService {
           value: create(ReadArgsSchema, {
             path: normalizedReadArgs.path,
             toolCallId,
+            offset: normalizedReadArgs.offset,
+            limit: normalizedReadArgs.limit,
           }),
         }
       }

@@ -811,6 +811,11 @@ export class GoogleService {
         "<identity>",
         "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.",
         "</identity>",
+        "<tooling>",
+        "When inspecting a codebase, prefer structured tools such as read_file, list_directory, grep_search, search_symbols, go_to_definition, and semantic_search before using run_terminal_command.",
+        "Use read_file in focused windows instead of reading whole large files when possible.",
+        "Only use terminal commands when the user explicitly asks for shell execution or no structured tool can express the operation.",
+        "</tooling>",
       ].join("\n")
     }
 

@@ -8959,7 +8959,7 @@ ${raw}
         "[specific steps on how to run this workflow]",
         "",
         " - You might be asked to create a new workflow. If so, create a new file in {.agents,.agent,_agents,_agent}/workflows/[filename].md (use absolute path) following the format described above. Be very specific with your instructions.",
-        " - If a workflow step has a '// turbo' annotation above it, you can auto-run the workflow step if it involves the run_command tool, by setting 'SafeToAutoRun' to true. This annotation ONLY applies for this single step.",
+        " - If a workflow step has a '// turbo' annotation above it, you can auto-run the workflow step if it involves the run_terminal_command tool, by setting 'SafeToAutoRun' to true. This annotation ONLY applies for this single step.",
         "   - For example if a workflow includes:",
         "```",
         "2. Make a folder called foo",
@@ -8967,8 +8967,8 @@ ${raw}
         "3. Make a folder called bar",
         "```",
         "You should auto-run step 3, but use your usual judgement for step 2.",
-        " - If a workflow has a '// turbo-all' annotation anywhere, you MUST auto-run EVERY step that involves the run_command tool, by setting 'SafeToAutoRun' to true. This annotation applies to EVERY step.",
-        " - If a workflow looks relevant, or the user explicitly uses a slash command like /slash-command, then use the view_file tool to read {.agents,.agent,_agents,_agent}/workflows/slash-command.md.",
+        " - If a workflow has a '// turbo-all' annotation anywhere, you MUST auto-run EVERY step that involves the run_terminal_command tool, by setting 'SafeToAutoRun' to true. This annotation applies to EVERY step.",
+        " - If a workflow looks relevant, or the user explicitly uses a slash command like /slash-command, then use the read_file tool to read {.agents,.agent,_agents,_agent}/workflows/slash-command.md.",
         "",
       ]
 
