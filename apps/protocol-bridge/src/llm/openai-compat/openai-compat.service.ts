@@ -76,19 +76,31 @@ function normalizeOpenAiCompatReasoningEffort(effort: string): string {
 
   switch (normalized) {
     case "none":
+      return "none"
     case "minimal":
-    case "low":
       return "low"
+    case "low":
     case "medium":
-      return "medium"
     case "high":
     case "xhigh":
+      return normalized
     case "max":
     case "auto":
-      return "high"
+      return "xhigh"
     default:
       return "medium"
   }
+}
+
+function convertOpenAiCompatBudgetToEffort(budgetTokens: number): string {
+  if (budgetTokens < 0) return normalizeOpenAiCompatReasoningEffort("auto")
+  if (budgetTokens === 0) return normalizeOpenAiCompatReasoningEffort("none")
+  if (budgetTokens <= 512)
+    return normalizeOpenAiCompatReasoningEffort("minimal")
+  if (budgetTokens <= 1024) return "low"
+  if (budgetTokens <= 8192) return "medium"
+  if (budgetTokens <= 24576) return "high"
+  return "xhigh"
 }
 
 function resolveOpenAiCompatReasoningEffort(dto: CreateMessageDto): string {
@@ -100,19 +112,16 @@ function resolveOpenAiCompatReasoningEffort(dto: CreateMessageDto): string {
     case "enabled": {
       const budget = dto.thinking.budget_tokens
       if (budget == null) return "medium"
-      if (budget <= 0) return "low"
-      if (budget <= 1024) return "low"
-      if (budget <= 8192) return "medium"
-      return "high"
+      return convertOpenAiCompatBudgetToEffort(budget)
     }
     case "disabled":
-      return "low"
+      return normalizeOpenAiCompatReasoningEffort("none")
     case "adaptive":
     case "auto":
       return normalizeOpenAiCompatReasoningEffort(
         typeof dto.output_config?.effort === "string"
           ? dto.output_config.effort
-          : "high"
+          : "auto"
       )
     default:
       return "medium"
