@@ -41,6 +41,7 @@ import { ClaudeApiService } from "../../llm/claude-api/claude-api.service"
 import { GoogleModelCacheService } from "../../llm/google/google-model-cache.service"
 import { GoogleService } from "../../llm/google/google.service"
 import { ModelRouterService } from "../../llm/model-router.service"
+import { OpenaiCompatService } from "../../llm/openai-compat/openai-compat.service"
 import { KnowledgeBaseService } from "./knowledge-base.service"
 import {
   canPublicClaudeModelUseGoogle,
@@ -92,17 +93,32 @@ export class AiserverMockController {
     private readonly codexService: CodexService,
     private readonly claudeApiService: ClaudeApiService,
     private readonly modelRouter: ModelRouterService,
+    private readonly openaiCompatService: OpenaiCompatService,
     private readonly knowledgeBaseService: KnowledgeBaseService
   ) {}
+
+  private isGptBackendAvailable(): boolean {
+    return (
+      this.openaiCompatService.isAvailable() || this.codexService.isAvailable()
+    )
+  }
+
+  private getCursorGptModelTier(): string | null {
+    if (this.openaiCompatService.isAvailable()) {
+      return null
+    }
+
+    return this.codexService.getModelTier()
+  }
 
   private isCursorModelCurrentlyRoutable(modelId: string): boolean {
     const resolved = resolveCloudCodeModel(modelId)
     if (!resolved) {
-      return false
+      return this.claudeApiService.supportsModel(modelId)
     }
 
     if (resolved.family === "gpt") {
-      return this.codexService.isAvailable()
+      return this.isGptBackendAvailable()
     }
 
     if (resolved.family === "gemini") {
@@ -139,9 +155,10 @@ export class AiserverMockController {
     }
 
     return getCursorDisplayModels({
-      includeCodex: this.codexService.isAvailable(),
-      codexModelTier: this.codexService.getModelTier(),
+      includeCodex: this.isGptBackendAvailable(),
+      codexModelTier: this.getCursorGptModelTier(),
       excludeMaxNamedModels,
+      extraModels: this.claudeApiService.getCursorDisplayModels(),
     }).filter((model) => this.isCursorModelCurrentlyRoutable(model.name))
   }
 

@@ -232,6 +232,7 @@ Use for third-party Claude-compatible APIs.
 Configuration:
 
 - `agent-vibes sync --claude` reads `~/.claude/settings.json` and writes or updates a managed `claude-code-sync` entry in `apps/protocol-bridge/data/claude-api-accounts.json`.
+  The managed entry mirrors the current source settings; if the source no longer declares explicit model IDs, stale managed `models` are removed so dynamic discovery can take effect.
 - Or edit `apps/protocol-bridge/data/claude-api-accounts.json` manually:
 
 ```json
@@ -272,7 +273,9 @@ Behavior:
 - `forceModelPrefix=false` means a prefixed account exposes both `claude-sonnet-latest` and `team-a/claude-sonnet-latest`.
 - `forceModelPrefix=true` requires explicit prefixed requests for prefixed accounts.
 - Prefixed models such as `team-a/claude-sonnet-latest` only route to the matching Claude API account prefix.
-- If `models` is omitted, the requested Claude model name is passed upstream as-is.
+- If `models` is omitted, the proxy first tries to discover models from upstream via `GET /v1/models`;
+  if discovery is unavailable, it falls back to the built-in defaults and still allows Claude-family passthrough.
+- If `models` is configured, the explicit mappings take precedence and automatic discovery is skipped for that account.
 - `stripThinking=true` removes Anthropic thinking fields before forwarding for providers that only support the base Claude model name.
 - `excludedModels` supports case-insensitive wildcard patterns such as `claude-3-*`, `*-thinking`, or `*haiku*`.
 - Official `api.anthropic.com` accounts use `x-api-key`; third-party endpoints use `Authorization: Bearer ...`.

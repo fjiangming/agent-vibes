@@ -38,6 +38,20 @@ export class MessagesService implements OnModuleInit {
     private readonly claudeApiService: ClaudeApiService
   ) {}
 
+  private isGptBackendAvailable(): boolean {
+    return (
+      this.openaiCompatService.isAvailable() || this.codexService.isAvailable()
+    )
+  }
+
+  private getAdvertisedGptModelTier(): string | null {
+    if (this.openaiCompatService.isAvailable()) {
+      return null
+    }
+
+    return this.codexService.getModelTier()
+  }
+
   /**
    * Initialize backend availability checks.
    */
@@ -580,7 +594,7 @@ export class MessagesService implements OnModuleInit {
       }
 
       if (resolved.family === "gpt") {
-        return this.codexService.isAvailable()
+        return this.isGptBackendAvailable()
       }
 
       if (resolved.family === "gemini") {
@@ -632,8 +646,19 @@ export class MessagesService implements OnModuleInit {
     }
 
     // 2) Compatibility aliases we intentionally keep for existing clients
-    for (const modelId of this.claudeApiService.getPublicModelIds()) {
-      addModel(modelId, "anthropic")
+    for (const model of this.claudeApiService.getPublicModels()) {
+      if (modelMap.has(model.id)) {
+        continue
+      }
+
+      modelMap.set(model.id, {
+        id: model.id,
+        object: "model",
+        created_at: model.createdAt || now,
+        owned_by: "anthropic",
+        type: "model",
+        display_name: model.displayName,
+      })
     }
 
     const compatibilityModels = [
@@ -661,9 +686,9 @@ export class MessagesService implements OnModuleInit {
     }
 
     // 3) Codex models (if backend is available)
-    if (this.codexService.isAvailable()) {
+    if (this.isGptBackendAvailable()) {
       const codexModels = getCodexPublicModelIds({
-        codexModelTier: this.codexService.getModelTier(),
+        codexModelTier: this.getAdvertisedGptModelTier(),
       })
       for (const modelId of codexModels) {
         addModel(modelId, "openai")
