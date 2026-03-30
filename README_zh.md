@@ -221,6 +221,7 @@ agent-vibes sync --codex
 配置方式：
 
 - `agent-vibes sync --claude` 会读取 `~/.claude/settings.json`，并在 `apps/protocol-bridge/data/claude-api-accounts.json` 中写入或更新一个受管理的 `claude-code-sync` 条目。
+  这个受管理条目会以当前源设置为准；如果源设置里已经没有显式模型 ID，旧的受管 `models` 也会被清掉，以便动态发现生效。
 - 或手动编辑 `apps/protocol-bridge/data/claude-api-accounts.json`：
 
 ```json
@@ -261,7 +262,8 @@ agent-vibes sync --codex
 - `forceModelPrefix=false` 时，带前缀账号会同时暴露 `claude-sonnet-latest` 和 `team-a/claude-sonnet-latest`。
 - `forceModelPrefix=true` 时，带前缀账号必须显式用前缀模型名访问。
 - 带前缀的模型，例如 `team-a/claude-sonnet-latest`，只会命中对应 `prefix` 的 Claude API 账号。
-- 如果没有配置 `models`，则会把请求里的 Claude 模型名原样透传到上游。
+- 如果没有配置 `models`，代理会优先尝试从上游 `GET /v1/models` 动态发现可用模型；发现失败时，仍会保留内置默认列表并继续支持 Claude-family 模型名原样透传。
+- 如果配置了 `models`，则以手动映射为准，不再自动发现该账号的模型列表。
 - `stripThinking=true` 时，会在转发前移除 Anthropic thinking 相关字段，适合只支持基础 Claude 模型名的第三方端点。
 - `excludedModels` 支持大小写不敏感的通配符写法，例如 `claude-3-*`、`*-thinking`、`*haiku*`。
 - 官方 `api.anthropic.com` 使用 `x-api-key`；第三方兼容端点使用 `Authorization: Bearer ...`。

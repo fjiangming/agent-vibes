@@ -216,28 +216,6 @@ function sanitizeModelEntriesForAccount(models, account) {
   })
 }
 
-function mergeModelEntries(existingModels, syncedModels) {
-  const merged = []
-  const seen = new Set()
-
-  for (const rawModel of [...(existingModels || []), ...(syncedModels || [])]) {
-    const model = normalizeModelEntry(rawModel)
-    if (!model) {
-      continue
-    }
-
-    const key = `${model.name}\u0000${model.alias || ""}`
-    if (seen.has(key)) {
-      continue
-    }
-
-    seen.add(key)
-    merged.push(model)
-  }
-
-  return merged
-}
-
 function writeAccountsFile(destPath, managedAccount) {
   const existing = loadExistingAccountsFile(destPath)
   const previousManaged = existing.accounts.find(
@@ -263,12 +241,8 @@ function writeAccountsFile(destPath, managedAccount) {
   } else {
     delete outputAccount.proxyUrl
   }
-  const mergedModels = mergeModelEntries(
-    previousManaged?.models,
-    managedAccount.models
-  )
   const sanitizedModels = sanitizeModelEntriesForAccount(
-    mergedModels,
+    managedAccount.models,
     outputAccount
   )
   if (sanitizedModels.length > 0) {
@@ -302,7 +276,9 @@ if (account.models.length > 0) {
     `   Explicit model IDs: ${account.models.map((model) => model.name).join(", ")}`
   )
 } else {
-  console.log("   Explicit model IDs: none (Claude-family passthrough enabled)")
+  console.log(
+    "   Explicit model IDs: none (dynamic discovery + Claude-family passthrough enabled)"
+  )
 }
 console.log(
   `\n✅ Credentials written to ${path.relative(PROJECT_ROOT, DEST_FILE)}`

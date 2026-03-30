@@ -13,6 +13,7 @@ import {
   resolveRuntimeDataPath,
 } from "../../shared/protocol-bridge-paths"
 import {
+  type CursorDisplayModel,
   detectModelFamily,
   doesModelIdRequireExplicitThinkingSupport,
 } from "../model-registry"
@@ -48,6 +49,20 @@ interface ClaudeApiModelMapping {
   alias?: string
 }
 
+interface ClaudeApiDiscoveredModel {
+  name: string
+  displayName?: string
+  createdAt?: number
+  isThinking: boolean
+}
+
+export interface ClaudeApiPublicModel {
+  id: string
+  displayName?: string
+  createdAt?: number
+  isThinking: boolean
+}
+
 interface ClaudeApiAccount extends CooldownableAccount {
   label?: string
   apiKey: string
@@ -61,6 +76,9 @@ interface ClaudeApiAccount extends CooldownableAccount {
   priority: number
   source: "env" | "file"
   stateKey: string
+  discoveredModels: ClaudeApiDiscoveredModel[]
+  discoveredModelsFetchedAt?: number
+  discoveryPromise?: Promise<void>
 }
 
 interface ClaudeApiCandidate {
@@ -113,6 +131,10 @@ const DEFAULT_FORWARDED_HEADERS: Record<string, string> = {
   "user-agent": "claude-cli/2.1.70 (external, cli)",
 }
 
+const MODEL_DISCOVERY_TIMEOUT_MS = 8_000
+const MODEL_DISCOVERY_MAX_PAGES = 5
+const MODEL_DISCOVERY_TTL_MS = 15 * 60_000
+
 @Injectable()
 export class ClaudeApiService implements OnModuleInit {
   private readonly logger = new Logger(ClaudeApiService.name)
@@ -134,7 +156,7 @@ export class ClaudeApiService implements OnModuleInit {
 
   constructor(private readonly configService: ConfigService) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
     const fileAccounts = this.loadAllAccountsFromFile()
     if (fileAccounts.length > 0) {
       this.accounts = fileAccounts
@@ -186,6 +208,11 @@ export class ClaudeApiService implements OnModuleInit {
       )
     }
     this.persistAccountStates()
+    await Promise.allSettled(
+      this.accounts.map((account) =>
+        this.refreshDiscoveredModelsForAccount(account, { force: true })
+      )
+    )
 
     this.logger.log(
       `Claude API backend initialized: ${this.accounts.length} account(s), forceModelPrefix=${this.forceModelPrefix}`
@@ -256,52 +283,66 @@ export class ClaudeApiService implements OnModuleInit {
   }
 
   supportsModel(model: string): boolean {
+    this.refreshDiscoveredModelsInBackgroundIfNeeded()
     return this.resolveCandidates(model).some(
       (candidate) => !isAccountDisabled(candidate.account)
     )
   }
 
-  getPublicModelIds(): string[] {
-    const ids = new Set<string>()
+  getPublicModels(): ClaudeApiPublicModel[] {
+    this.refreshDiscoveredModelsInBackgroundIfNeeded()
+
+    const models = new Map<string, ClaudeApiPublicModel>()
 
     for (const account of this.accounts) {
       if (isAccountDisabled(account)) {
         continue
       }
 
-      if (account.models.length > 0) {
-        for (const mapping of account.models) {
-          for (const publicId of this.buildVisibleModelIdsForAccount(
-            account,
-            mapping.alias || mapping.name
-          )) {
-            if (
-              !this.isModelExcluded(account, publicId) &&
-              this.isPublicModelIdCompatibleWithAccount(account, publicId)
-            ) {
-              ids.add(publicId)
-            }
-          }
-        }
-        continue
-      }
-
-      for (const modelId of DEFAULT_PUBLIC_CLAUDE_MODEL_IDS) {
+      for (const model of this.getAdvertisedModelsForAccount(account)) {
         for (const publicId of this.buildVisibleModelIdsForAccount(
           account,
-          modelId
+          model.id
         )) {
           if (
-            !this.isModelExcluded(account, publicId) &&
-            this.isPublicModelIdCompatibleWithAccount(account, publicId)
+            this.isModelExcluded(account, publicId) ||
+            !this.isPublicModelIdCompatibleWithAccount(account, publicId)
           ) {
-            ids.add(publicId)
+            continue
           }
+
+          const normalized = publicId.toLowerCase()
+          if (models.has(normalized)) {
+            continue
+          }
+
+          models.set(normalized, {
+            id: publicId,
+            displayName: model.displayName,
+            createdAt: model.createdAt,
+            isThinking: model.isThinking,
+          })
         }
       }
     }
 
-    return Array.from(ids).sort()
+    return Array.from(models.values()).sort((left, right) =>
+      left.id.localeCompare(right.id)
+    )
+  }
+
+  getPublicModelIds(): string[] {
+    return this.getPublicModels().map((model) => model.id)
+  }
+
+  getCursorDisplayModels(): CursorDisplayModel[] {
+    return this.getPublicModels().map((model) => ({
+      name: model.id,
+      displayName: model.displayName || model.id,
+      shortName: model.displayName || model.id,
+      family: "claude",
+      isThinking: model.isThinking,
+    }))
   }
 
   async sendClaudeMessage(
@@ -804,8 +845,283 @@ export class ClaudeApiService implements OnModuleInit {
         baseUrl,
         prefix
       ),
+      discoveredModels: [],
       cooldownUntil: 0,
       modelStates: new Map(),
+    }
+  }
+
+  private getDiscoveredModelMappings(
+    account: ClaudeApiAccount
+  ): ClaudeApiModelMapping[] {
+    return account.discoveredModels.map((model) => ({ name: model.name }))
+  }
+
+  private getResolvedModelMappings(
+    account: ClaudeApiAccount
+  ): ClaudeApiModelMapping[] {
+    if (account.models.length > 0) {
+      return account.models
+    }
+
+    return this.getDiscoveredModelMappings(account)
+  }
+
+  private getAdvertisedModelsForAccount(
+    account: ClaudeApiAccount
+  ): ClaudeApiPublicModel[] {
+    if (account.models.length > 0) {
+      return account.models.map((mapping) => ({
+        id: mapping.alias || mapping.name,
+        displayName: mapping.alias || mapping.name,
+        isThinking: doesModelIdRequireExplicitThinkingSupport(
+          mapping.alias || mapping.name
+        ),
+      }))
+    }
+
+    if (account.discoveredModels.length > 0) {
+      return account.discoveredModels.map((model) => ({
+        id: model.name,
+        displayName: model.displayName || model.name,
+        createdAt: model.createdAt,
+        isThinking:
+          model.isThinking ||
+          doesModelIdRequireExplicitThinkingSupport(model.name),
+      }))
+    }
+
+    return DEFAULT_PUBLIC_CLAUDE_MODEL_IDS.map((modelId) => ({
+      id: modelId,
+      displayName: modelId,
+      isThinking: doesModelIdRequireExplicitThinkingSupport(modelId),
+    }))
+  }
+
+  private shouldDiscoverModelsForAccount(account: ClaudeApiAccount): boolean {
+    return account.models.length === 0
+  }
+
+  private shouldRefreshDiscovery(account: ClaudeApiAccount): boolean {
+    return (
+      this.shouldDiscoverModelsForAccount(account) &&
+      (!account.discoveredModelsFetchedAt ||
+        Date.now() - account.discoveredModelsFetchedAt >=
+          MODEL_DISCOVERY_TTL_MS)
+    )
+  }
+
+  private refreshDiscoveredModelsInBackgroundIfNeeded(): void {
+    for (const account of this.accounts) {
+      if (!this.shouldRefreshDiscovery(account)) {
+        continue
+      }
+
+      void this.refreshDiscoveredModelsForAccount(account).catch((error) => {
+        this.logger.debug(
+          `[Claude API] Background model discovery failed for ${account.label || account.baseUrl}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      })
+    }
+  }
+
+  private async refreshDiscoveredModelsForAccount(
+    account: ClaudeApiAccount,
+    options: { force?: boolean } = {}
+  ): Promise<void> {
+    if (!this.shouldDiscoverModelsForAccount(account)) {
+      account.discoveredModels = []
+      account.discoveredModelsFetchedAt = Date.now()
+      return
+    }
+
+    if (!options.force && !this.shouldRefreshDiscovery(account)) {
+      return
+    }
+
+    if (account.discoveryPromise) {
+      return account.discoveryPromise
+    }
+
+    account.discoveryPromise = (async () => {
+      try {
+        account.discoveredModels = await this.fetchModelsForAccount(account)
+      } catch (error) {
+        this.logger.debug(
+          `[Claude API] Model discovery unavailable for ${account.label || account.baseUrl}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      } finally {
+        account.discoveredModelsFetchedAt = Date.now()
+        account.discoveryPromise = undefined
+      }
+    })()
+
+    return account.discoveryPromise
+  }
+
+  private async fetchModelsForAccount(
+    account: ClaudeApiAccount
+  ): Promise<ClaudeApiDiscoveredModel[]> {
+    const discovered = new Map<string, ClaudeApiDiscoveredModel>()
+    let afterId: string | undefined
+
+    for (let page = 0; page < MODEL_DISCOVERY_MAX_PAGES; page++) {
+      const response = await this.fetchModelPage(account, afterId)
+
+      for (const model of response.models) {
+        const normalized = model.name.toLowerCase()
+        if (!normalized || discovered.has(normalized)) {
+          continue
+        }
+        discovered.set(normalized, model)
+      }
+
+      if (
+        !response.hasMore ||
+        !response.lastId ||
+        response.lastId === afterId
+      ) {
+        break
+      }
+      afterId = response.lastId
+    }
+
+    return Array.from(discovered.values()).sort((left, right) =>
+      left.name.localeCompare(right.name)
+    )
+  }
+
+  private async fetchModelPage(
+    account: ClaudeApiAccount,
+    afterId?: string
+  ): Promise<{
+    models: ClaudeApiDiscoveredModel[]
+    hasMore: boolean
+    lastId?: string
+  }> {
+    const url = this.buildModelsUrl(account.baseUrl, afterId)
+    const headers = this.buildHeadersForAccount(account, false, {}, [])
+    const fetchOptions: RequestInit & { dispatcher?: unknown } = {
+      method: "GET",
+      headers,
+    }
+
+    const dispatcher = this.buildProxyAgent(account)
+    if (dispatcher) {
+      fetchOptions.dispatcher = dispatcher
+    }
+
+    const response = await this.fetchWithResponseHeadersTimeout(
+      url,
+      fetchOptions,
+      MODEL_DISCOVERY_TIMEOUT_MS,
+      `Claude API model discovery timed out after ${MODEL_DISCOVERY_TIMEOUT_MS}ms`
+    )
+
+    if (!response.ok) {
+      const detail = await response.text()
+      throw new Error(
+        `status=${response.status} body=${this.buildErrorPreview(detail)}`
+      )
+    }
+
+    const payload = (await response.json()) as {
+      data?: unknown[]
+      has_more?: boolean
+      last_id?: string
+    }
+
+    return {
+      models: this.parseDiscoveredModels(payload.data),
+      hasMore: payload?.has_more === true,
+      lastId:
+        typeof payload?.last_id === "string" && payload.last_id.trim()
+          ? payload.last_id.trim()
+          : undefined,
+    }
+  }
+
+  private parseDiscoveredModels(data: unknown): ClaudeApiDiscoveredModel[] {
+    if (!Array.isArray(data)) {
+      return []
+    }
+
+    const models: ClaudeApiDiscoveredModel[] = []
+    const seen = new Set<string>()
+
+    for (const entry of data) {
+      const model = this.parseDiscoveredModelEntry(entry)
+      if (!model) {
+        continue
+      }
+
+      const normalized = model.name.toLowerCase()
+      if (seen.has(normalized)) {
+        continue
+      }
+      seen.add(normalized)
+      models.push(model)
+    }
+
+    return models
+  }
+
+  private parseDiscoveredModelEntry(
+    entry: unknown
+  ): ClaudeApiDiscoveredModel | null {
+    if (!entry || typeof entry !== "object") {
+      return null
+    }
+
+    const rawEntry = entry as {
+      id?: unknown
+      name?: unknown
+      display_name?: unknown
+      displayName?: unknown
+      created_at?: unknown
+      createdAt?: unknown
+      capabilities?: {
+        thinking?: {
+          supported?: unknown
+        }
+      }
+      thinking?: unknown
+    }
+
+    const name =
+      typeof rawEntry.id === "string" && rawEntry.id.trim()
+        ? rawEntry.id.trim()
+        : typeof rawEntry.name === "string" && rawEntry.name.trim()
+          ? rawEntry.name.trim()
+          : ""
+    if (!name) {
+      return null
+    }
+
+    const displayName =
+      typeof rawEntry.display_name === "string" && rawEntry.display_name.trim()
+        ? rawEntry.display_name.trim()
+        : typeof rawEntry.displayName === "string" &&
+            rawEntry.displayName.trim()
+          ? rawEntry.displayName.trim()
+          : undefined
+
+    const createdAtRaw =
+      typeof rawEntry.created_at === "string"
+        ? rawEntry.created_at
+        : typeof rawEntry.createdAt === "string"
+          ? rawEntry.createdAt
+          : ""
+    const createdAt = createdAtRaw ? Date.parse(createdAtRaw) : NaN
+
+    return {
+      name,
+      displayName,
+      createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
+      isThinking:
+        rawEntry.capabilities?.thinking?.supported === true ||
+        rawEntry.thinking === true ||
+        doesModelIdRequireExplicitThinkingSupport(name),
     }
   }
 
@@ -1114,6 +1430,7 @@ export class ClaudeApiService implements OnModuleInit {
   }
 
   private resolveCandidates(model: string): ClaudeApiCandidate[] {
+    this.refreshDiscoveredModelsInBackgroundIfNeeded()
     const requested = this.normalizeRequestedModel(model)
     const candidates: ClaudeApiCandidate[] = []
 
@@ -1127,8 +1444,10 @@ export class ClaudeApiService implements OnModuleInit {
         continue
       }
 
-      if (account.models.length > 0) {
-        for (const mapping of account.models) {
+      const modelMappings = this.getResolvedModelMappings(account)
+      let matchedResolvedMapping = false
+      if (modelMappings.length > 0) {
+        for (const mapping of modelMappings) {
           const alias = mapping.alias?.trim().toLowerCase()
           const name = mapping.name.trim().toLowerCase()
           if (
@@ -1149,13 +1468,16 @@ export class ClaudeApiService implements OnModuleInit {
             continue
           }
 
+          matchedResolvedMapping = true
           candidates.push({
             account,
             upstreamModel: mapping.name.trim(),
             publicModelId,
           })
         }
-        continue
+        if (matchedResolvedMapping || account.models.length > 0) {
+          continue
+        }
       }
 
       if (detectModelFamily(requested.model) !== "claude") {
@@ -1400,6 +1722,20 @@ export class ClaudeApiService implements OnModuleInit {
     return /\/v1$/i.test(normalized)
       ? `${normalized}/messages`
       : `${normalized}/v1/messages`
+  }
+
+  private buildModelsUrl(baseUrl: string, afterId?: string): string {
+    const normalized = baseUrl.replace(/\/+$/, "")
+    const url = new URL(
+      /\/v1$/i.test(normalized)
+        ? `${normalized}/models`
+        : `${normalized}/v1/models`
+    )
+    url.searchParams.set("limit", "1000")
+    if (afterId) {
+      url.searchParams.set("after_id", afterId)
+    }
+    return url.toString()
   }
 
   private buildProxyAgent(

@@ -787,6 +787,7 @@ export interface CursorDisplayModelOptions {
   includeCodex?: boolean
   codexModelTier?: string | null
   excludeMaxNamedModels?: boolean
+  extraModels?: CursorDisplayModel[]
 }
 
 export const GEMINI_CURSOR_DISPLAY_MODELS: CursorDisplayModel[] = [
@@ -1186,13 +1187,25 @@ export function getCursorDisplayModels(
           excludeMaxNamedModels: options.excludeMaxNamedModels,
         })
       : []),
+    ...(options.extraModels || []),
   ]
 
-  if (!options.excludeMaxNamedModels) {
-    return allModels
+  const filteredModels = options.excludeMaxNamedModels
+    ? allModels.filter((model) => !model.name.includes("max"))
+    : allModels
+
+  const dedupedModels: CursorDisplayModel[] = []
+  const seen = new Set<string>()
+  for (const model of filteredModels) {
+    const normalized = model.name.toLowerCase().trim()
+    if (!normalized || seen.has(normalized)) {
+      continue
+    }
+    seen.add(normalized)
+    dedupedModels.push(model)
   }
 
-  return allModels.filter((model) => !model.name.includes("max"))
+  return dedupedModels
 }
 
 export function getAllCursorDisplayModels(): CursorDisplayModel[] {

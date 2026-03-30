@@ -69,14 +69,30 @@ export class CursorAdapterController {
     private readonly kvStorageService: KvStorageService
   ) {}
 
+  private isGptBackendAvailable(): boolean {
+    return (
+      this.openaiCompatService.isAvailable() || this.codexService.isAvailable()
+    )
+  }
+
+  private getCursorGptModelTier(): string | null {
+    // OpenAI-compatible providers don't expose a plan tier, so when they are
+    // available we keep the full public GPT catalog visible in Cursor.
+    if (this.openaiCompatService.isAvailable()) {
+      return null
+    }
+
+    return this.codexService.getModelTier()
+  }
+
   private isCursorModelCurrentlyRoutable(modelId: string): boolean {
     const resolved = resolveCloudCodeModel(modelId)
     if (!resolved) {
-      return false
+      return this.claudeApiService.supportsModel(modelId)
     }
 
     if (resolved.family === "gpt") {
-      return this.codexService.isAvailable()
+      return this.isGptBackendAvailable()
     }
 
     if (resolved.family === "gemini") {
@@ -96,8 +112,9 @@ export class CursorAdapterController {
 
   private buildCursorModels() {
     return getCursorDisplayModels({
-      includeCodex: this.codexService.isAvailable(),
-      codexModelTier: this.codexService.getModelTier(),
+      includeCodex: this.isGptBackendAvailable(),
+      codexModelTier: this.getCursorGptModelTier(),
+      extraModels: this.claudeApiService.getCursorDisplayModels(),
     }).filter((model) => this.isCursorModelCurrentlyRoutable(model.name))
   }
 

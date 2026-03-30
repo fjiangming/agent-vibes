@@ -25,6 +25,12 @@ const { execSync } = require("child_process")
 const ROOT = path.resolve(__dirname, "..", "..")
 const LOG_DIR = path.join(ROOT, ".log")
 const OUTPUT_FILE = path.join(LOG_DIR, "issue-report.md")
+const ENV_FILE_CANDIDATES = [
+  path.join(ROOT, "apps", "protocol-bridge", ".env.local"),
+  path.join(ROOT, "apps", "protocol-bridge", ".env"),
+  path.join(ROOT, ".env.local"),
+  path.join(ROOT, ".env"),
+]
 
 const args = process.argv.slice(2)
 const linesIndex = args.indexOf("--lines")
@@ -114,6 +120,92 @@ function redact(text) {
 function truncateLine(line) {
   if (line.length <= MAX_LOG_LINE_LENGTH) return line
   return `${line.slice(0, MAX_LOG_LINE_LENGTH - 3)}...`
+}
+
+function relativeToRoot(filePath) {
+  return path.relative(ROOT, filePath) || "."
+}
+
+function getExistingEnvFiles() {
+  return ENV_FILE_CANDIDATES.filter(
+    (filePath, index, allPaths) =>
+      allPaths.indexOf(filePath) === index && fs.existsSync(filePath)
+  )
+}
+
+function readJsonIfExists(filePath) {
+  if (!fs.existsSync(filePath)) return null
+  return JSON.parse(fs.readFileSync(filePath, "utf-8"))
+}
+
+function formatAccountFileStatus(configPaths) {
+  for (const configPath of configPaths) {
+    if (!fs.existsSync(configPath)) continue
+
+    try {
+      const data = readJsonIfExists(configPath)
+      const count = Array.isArray(data)
+        ? data.length
+        : Array.isArray(data?.accounts)
+          ? data.accounts.length
+          : null
+
+      if (count === null) {
+        return `⚠️ Found invalid shape in ${relativeToRoot(configPath)}`
+      }
+
+      return `✅ Found (${count} account${count !== 1 ? "s" : ""}) in ${relativeToRoot(configPath)}`
+    } catch {
+      return `⚠️ Found but invalid JSON in ${relativeToRoot(configPath)}`
+    }
+  }
+
+  return null
+}
+
+function formatEnvCredentialStatus(envFiles, patterns, options = {}) {
+  const requiredPatterns = Array.isArray(patterns) ? patterns : [patterns]
+  const matchMode = options.matchMode === "all" ? "all" : "any"
+
+  for (const envFile of envFiles) {
+    let envText = ""
+    try {
+      envText = fs.readFileSync(envFile, "utf-8")
+    } catch {
+      continue
+    }
+
+    const matches = requiredPatterns.map((pattern) => pattern.test(envText))
+    if (
+      (matchMode === "all" && matches.every(Boolean)) ||
+      (matchMode === "any" && matches.some(Boolean))
+    ) {
+      return `✅ Found in ${relativeToRoot(envFile)}`
+    }
+  }
+
+  return null
+}
+
+function buildBackendStatus(options) {
+  const fileStatus = formatAccountFileStatus(options.configPaths || [])
+  if (fileStatus) {
+    return fileStatus
+  }
+
+  const envStatus =
+    options.envPatterns && options.envPatterns.length > 0
+      ? formatEnvCredentialStatus(
+          options.envFiles || [],
+          options.envPatterns,
+          options
+        )
+      : null
+  if (envStatus) {
+    return envStatus
+  }
+
+  return "❌ Not found"
 }
 
 function isImportantLogLine(line) {
@@ -255,6 +347,7 @@ function collectEnvironment() {
 
 function collectConfigStatus() {
   const checks = {}
+  const envFiles = getExistingEnvFiles()
 
   // SSL certificates
   const certPath = path.join(
@@ -266,42 +359,93 @@ function collectConfigStatus() {
   )
   checks.sslCerts = fs.existsSync(certPath) ? "✅ Found" : "❌ Not found"
 
-  const bridgeEnv = path.join(ROOT, "apps", "protocol-bridge", ".env.local")
-  checks.bridgeEnvLocal = fs.existsSync(bridgeEnv) ? "✅ Found" : "❌ Not found"
-  if (fs.existsSync(bridgeEnv)) {
-    const envText = fs.readFileSync(bridgeEnv, "utf-8")
-    checks.codexCredentials = /^(CODEX_API_KEY|CODEX_ACCESS_TOKEN)=/m.test(
-      envText
-    )
-      ? "✅ Found"
-      : "⚠️ Not found"
-  } else {
-    checks.codexCredentials = "⚠️ Not found"
-  }
+  checks.bridgeEnv =
+    envFiles.length > 0
+      ? `✅ Found (${envFiles.map(relativeToRoot).join(", ")})`
+      : "ℹ️ Optional / not found"
 
-  // accounts.json
-  const accountsPath = path.join(
-    ROOT,
-    "apps",
-    "protocol-bridge",
-    "data",
-    "accounts.json"
-  )
-  if (fs.existsSync(accountsPath)) {
-    try {
-      const accounts = JSON.parse(fs.readFileSync(accountsPath, "utf-8"))
-      const count = Array.isArray(accounts)
-        ? accounts.length
-        : Array.isArray(accounts.accounts)
-          ? accounts.accounts.length
-          : "?"
-      checks.accounts = `✅ Found (${count} account${count !== 1 ? "s" : ""})`
-    } catch {
-      checks.accounts = "⚠️ Found but invalid JSON"
-    }
-  } else {
-    checks.accounts = "❌ Not found"
-  }
+  checks.antigravityAccounts = buildBackendStatus({
+    envFiles,
+    configPaths: [
+      path.join(
+        ROOT,
+        "apps",
+        "protocol-bridge",
+        "data",
+        "antigravity-accounts.json"
+      ),
+      path.join(
+        ROOT,
+        "apps",
+        "protocol-bridge",
+        "data",
+        "accounts",
+        "antigravity-accounts.json"
+      ),
+      path.join(ROOT, "apps", "protocol-bridge", "data", "accounts.json"),
+    ],
+  })
+
+  checks.codexBackend = buildBackendStatus({
+    envFiles,
+    configPaths: [
+      path.join(ROOT, "apps", "protocol-bridge", "data", "codex-accounts.json"),
+      path.join(
+        ROOT,
+        "apps",
+        "protocol-bridge",
+        "data",
+        "accounts",
+        "codex-accounts.json"
+      ),
+    ],
+    envPatterns: [/^CODEX_API_KEY=/m, /^CODEX_ACCESS_TOKEN=/m],
+  })
+
+  checks.openaiCompatBackend = buildBackendStatus({
+    envFiles,
+    configPaths: [
+      path.join(
+        ROOT,
+        "apps",
+        "protocol-bridge",
+        "data",
+        "openai-compat-accounts.json"
+      ),
+      path.join(
+        ROOT,
+        "apps",
+        "protocol-bridge",
+        "data",
+        "accounts",
+        "openai-compat-accounts.json"
+      ),
+    ],
+    envPatterns: [/^OPENAI_COMPAT_API_KEY=/m, /^OPENAI_COMPAT_BASE_URL=/m],
+    matchMode: "all",
+  })
+
+  checks.claudeApiBackend = buildBackendStatus({
+    envFiles,
+    configPaths: [
+      path.join(
+        ROOT,
+        "apps",
+        "protocol-bridge",
+        "data",
+        "claude-api-accounts.json"
+      ),
+      path.join(
+        ROOT,
+        "apps",
+        "protocol-bridge",
+        "data",
+        "accounts",
+        "claude-api-accounts.json"
+      ),
+    ],
+    envPatterns: [/^CLAUDE_API_KEY=/m],
+  })
 
   // Port forwarding status (non-sudo check only)
   checks.forwarding = safeExec(
@@ -403,9 +547,11 @@ function generateReport() {
 | Check | Status |
 |-------|--------|
 | SSL Certificates | ${config.sslCerts} |
-| Bridge .env.local | ${config.bridgeEnvLocal} |
-| Codex Credentials | ${config.codexCredentials} |
-| Accounts | ${config.accounts} |
+| Bridge Env | ${config.bridgeEnv} |
+| Antigravity Accounts | ${config.antigravityAccounts} |
+| Codex Backend | ${config.codexBackend} |
+| OpenAI-Compatible Backend | ${config.openaiCompatBackend} |
+| Claude API Backend | ${config.claudeApiBackend} |
 | Build | ${config.build} |
 
 <details>
