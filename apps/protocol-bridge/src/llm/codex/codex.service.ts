@@ -1233,7 +1233,7 @@ export class CodexService implements OnModuleInit {
       try {
         const event = JSON.parse(jsonStr) as Record<string, unknown>
         if (event.type === "response.completed") {
-          const result = translateCodexToClaudeNonStream(event, reverseToolMap)
+          const result = translateCodexToClaudeNonStream(event, reverseToolMap, modelName)
           if (result) {
             this.logger.log(
               `[Codex] Non-stream response: model=${result.model}, stop=${result.stop_reason}`
@@ -1286,7 +1286,8 @@ export class CodexService implements OnModuleInit {
 
       const result = translateCodexToClaudeNonStream(
         completedEvent as Record<string, unknown>,
-        reverseToolMap
+        reverseToolMap,
+        modelName
       )
       if (result) {
         this.logger.log(
@@ -1490,7 +1491,8 @@ export class CodexService implements OnModuleInit {
           const claudeEvents = translateCodexSseEvent(
             trimmed,
             state,
-            reverseToolMap
+            reverseToolMap,
+            modelName
           )
           for (const event of claudeEvents) {
             yield event
@@ -1503,7 +1505,8 @@ export class CodexService implements OnModuleInit {
         const claudeEvents = translateCodexSseEvent(
           buffer.trim(),
           state,
-          reverseToolMap
+          reverseToolMap,
+          modelName
         )
         for (const event of claudeEvents) {
           yield event

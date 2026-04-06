@@ -47,15 +47,15 @@ interface CodexTool {
 
 interface CodexRequest {
   model: string
-  instructions: string
+  instructions?: string
   input: CodexInputItem[]
   tools?: CodexTool[]
   tool_choice?: string | Record<string, unknown>
   stream: boolean
-  store: boolean
-  parallel_tool_calls: boolean
-  reasoning: { effort: string; summary: string }
-  include: string[]
+  store?: boolean
+  parallel_tool_calls?: boolean
+  reasoning?: { effort: string; summary: string }
+  include?: string[]
   [key: string]: unknown
 }
 
@@ -122,9 +122,9 @@ function resolveParallelToolCalls(toolChoice: unknown): boolean {
 function resolveReasoningEffort(
   dto: CreateMessageDto,
   modelName: string
-): string {
+): string | undefined {
   if (!dto.thinking) {
-    return "medium"
+    return undefined
   }
 
   switch (dto.thinking.type) {
@@ -134,7 +134,7 @@ function resolveReasoningEffort(
       }
       return "medium"
     case "disabled":
-      return normalizeDirectCodexEffort("none", modelName)
+      return undefined
     case "adaptive":
     case "auto": {
       const effort = dto.output_config?.effort
@@ -429,16 +429,25 @@ export function translateClaudeToCodex(
   // ── Build final request ──────────────────────────────────────────
   const request: CodexRequest = {
     model: modelName,
-    instructions: "",
     input,
     stream: true,
-    store: false,
-    parallel_tool_calls: parallelToolCalls,
-    reasoning: {
+    include: []
+  }
+
+  if (parallelToolCalls !== undefined && dto.tools?.length) {
+    request.parallel_tool_calls = parallelToolCalls
+  }
+
+  if (reasoningEffort) {
+    request.reasoning = {
       effort: reasoningEffort,
       summary: "auto",
-    },
-    include: ["reasoning.encrypted_content"],
+    }
+    request.include = ["reasoning.encrypted_content"]
+  } else {
+    // Some endpoints may require include, but others fail if it's sent along without reasoning.
+    // We omit it or leave empty.
+    delete request.include
   }
 
   if (codexTools && codexTools.length > 0) {

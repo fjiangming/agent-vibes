@@ -1,10 +1,9 @@
 {
   "accounts": [
     {
-      "label": "claude-code-sync",
-      "apiKey": "sk-JskJBUEy6HjkCv3mzWdDKzxmdpDJyTtqKFyof92pApDCQCUA",
-      "baseUrl": "https://cc.v587xhy.com",
-      "stripThinking": true
+      "label": "epoint2api",
+      "apiKey": "sk-925c8d0fe837a2012abc24b1ae5eb0ca33ab7e00686b9a2f72bdd5888ea1020a",
+      "baseUrl": "https://epoint2api.fjmooo.cn"
     }
   ]
 }

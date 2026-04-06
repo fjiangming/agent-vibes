@@ -100,7 +100,8 @@ function formatSseEvent(event: string, data: Record<string, unknown>): string {
 export function translateCodexSseEvent(
   line: string,
   state: CodexStreamState,
-  reverseToolMap: Map<string, string>
+  reverseToolMap: Map<string, string>,
+  requestedModel?: string
 ): string[] {
   const trimmed = line.trim()
   if (!trimmed.startsWith("data:")) {
@@ -131,7 +132,7 @@ export function translateCodexSseEvent(
     case "response.created": {
       const response = event.response as Record<string, unknown>
       state.responseId = (response?.id as string) || ""
-      state.model = (response?.model as string) || ""
+      state.model = requestedModel || (response?.model as string) || ""
 
       results.push(
         formatSseEvent("message_start", {
@@ -365,7 +366,8 @@ export function translateCodexSseEvent(
  */
 export function translateCodexToClaudeNonStream(
   completedEvent: Record<string, unknown>,
-  reverseToolMap: Map<string, string>
+  reverseToolMap: Map<string, string>,
+  requestedModel?: string
 ): AnthropicResponse | null {
   if (completedEvent.type !== "response.completed") {
     return null
@@ -488,7 +490,7 @@ export function translateCodexToClaudeNonStream(
     id: (response.id as string) || "",
     type: "message",
     role: "assistant",
-    model: (response.model as string) || "",
+    model: requestedModel || (response.model as string) || "",
     content,
     stop_reason: stopReason,
     usage: {

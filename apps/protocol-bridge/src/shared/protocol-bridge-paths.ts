@@ -8,18 +8,17 @@ function uniquePaths(paths: string[]): string[] {
 }
 
 export function resolveProtocolBridgeAppRoot(): string {
-  const cwd = process.cwd()
-  const nestedRoot = path.resolve(cwd, "apps/protocol-bridge")
-
-  if (fs.existsSync(path.join(cwd, APP_ROOT_MARKER))) {
-    return cwd
+  // Traverse up from __dirname (dist/shared or src/shared) to find the app root
+  let currentDir = __dirname
+  while (currentDir !== path.parse(currentDir).root) {
+    if (fs.existsSync(path.join(currentDir, APP_ROOT_MARKER))) {
+      return currentDir
+    }
+    currentDir = path.dirname(currentDir)
   }
 
-  if (fs.existsSync(path.join(nestedRoot, APP_ROOT_MARKER))) {
-    return nestedRoot
-  }
-
-  return nestedRoot
+  // Fallback usually 2 levels up from shared/
+  return path.resolve(__dirname, "..", "..")
 }
 
 export function resolveProtocolBridgePath(...segments: string[]): string {
