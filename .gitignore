@@ -38,6 +38,10 @@ scripts/capture/traffic_dumps/
 scripts/capture/.clash-script-backup.js
 scripts/capture/antigravity_traffic.log
 
+# Temporary directories
+sub2api-temp/
+tmp_repos/
+
 # Runtime data
 *.pem
 *.sqlite

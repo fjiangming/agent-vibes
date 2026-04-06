@@ -83,7 +83,9 @@ native client compatibility for Cursor and native upstream fidelity for Antigrav
 
 ### One-Click Start (Recommended)
 
-This is the easiest way to launch the service without manual cloning or setup. The script will automatically fetch the latest `dev` branch to a hidden `~/.agent-vibes` directory, install dependencies, and start the service.
+This is the easiest way to launch the service without manual cloning or setup.
+The script will automatically fetch the latest `dev` branch to a hidden
+`~/.agent-vibes` directory, install dependencies, and start the service.
 
 **🖥️ Windows (PowerShell):**
 
@@ -98,7 +100,9 @@ curl -sSL https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-sta
 ```
 
 - **Stop Service**: Press `Ctrl + C` in the running terminal.
-- **Clean Uninstall**: Simply delete the `.agent-vibes` folder in your home directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`, macOS/Linux: `rm -rf ~/.agent-vibes`). There is no registry or global system pollution.
+- **Clean Uninstall**: Simply delete the `.agent-vibes` folder in your home
+  directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`,
+  macOS/Linux: `rm -rf ~/.agent-vibes`). There is no registry or global system pollution.
 
 ### Manual Source Installation (Advanced)
 
@@ -196,10 +200,18 @@ Use for Antigravity / Google Cloud Code access.
 
 > **⚠️ Important Warning regarding Antigravity Mode (Google Cloud Code native proxy)**
 >
-> When using the native Antigravity/Google path, this project **actively injects a massive hardcoded system prompt** (~35,000 characters) into every request. This is required to emulate the official Antigravity/Cloud Code behavior and pass backend validation, but it comes with severe side effects:
-> - **"Degradation" / Instruction Conflict:** The model is forced to obey strict, heavy-handed preset rules (such as mandatory web-app UI structures, glassmorphism aesthetics, SEO rules, etc.), which often conflict with the simple, direct instructions you send via Cursor.
-> - **Context Window Bloat / Amnesia:** Consuming ~10k tokens right off the bat severely limits your effective context window, causing the model to forget earlier parts of the conversation much sooner than usual.
-> - **Recommendation:** If you desire pure, unadulterated model intelligence without forced "Agent Vibes" UI bloat, it is highly recommended to use the **Codex (GPT)** or **Claude API** routing paths instead. The native Antigravity path should only be used if you explicitly want the heavy-handed agentic AI pre-prompts.
+> When using the native Antigravity/Google path, this project **actively injects a massive hardcoded system prompt**
+> (~35,000 characters) into every request. This is required to emulate the official Antigravity/Cloud Code behavior
+> and pass backend validation, but it comes with severe side effects:
+>
+> - **"Degradation" / Instruction Conflict:** The model is forced to obey strict, heavy-handed preset rules
+>   (such as mandatory web-app UI structures, glassmorphism aesthetics, SEO rules, etc.),
+>   which often conflict with the simple, direct instructions you send via Cursor.
+> - **Context Window Bloat / Amnesia:** Consuming ~10k tokens right off the bat severely limits
+>   your effective context window, causing the model to forget earlier parts of the conversation much sooner than usual.
+> - **Recommendation:** If you desire pure, unadulterated model intelligence without forced "Agent Vibes" UI bloat,
+>   it is highly recommended to use the **Codex (GPT)** or **Claude API** routing paths instead.
+>   The native Antigravity path should only be used if you explicitly want the heavy-handed agentic AI pre-prompts.
 
 Configuration:
 
