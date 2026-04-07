@@ -1,10 +1,23 @@
+param (
+    [string]$TargetDir = ""
+)
+
 $ErrorActionPreference = "Stop"
 
 Write-Host "🚀 Starting Agent Vibes setup..." -ForegroundColor Cyan
 
 $REPO_URL = "https://github.com/fjiangming/agent-vibes.git"
 $BRANCH = "dev"
-$TARGET_DIR = "$env:USERPROFILE\.agent-vibes"
+
+if (-not [string]::IsNullOrWhiteSpace($TargetDir)) {
+    $TARGET_DIR = $TargetDir
+} elseif (-not [string]::IsNullOrWhiteSpace($env:AGENT_VIBES_DIR)) {
+    $TARGET_DIR = $env:AGENT_VIBES_DIR
+} else {
+    $TARGET_DIR = "$env:USERPROFILE\.agent-vibes"
+}
+
+Write-Host "📂 Target directory: $TARGET_DIR" -ForegroundColor Cyan
 
 # Check Node.js
 if (-not (Get-Command "node" -ErrorAction SilentlyContinue)) {

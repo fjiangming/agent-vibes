@@ -90,13 +90,21 @@ The script will automatically fetch the latest `dev` branch to a hidden
 **🖥️ Windows (PowerShell):**
 
 ```powershell
+# Default installation path is C:\Users\<username>\.agent-vibes
 Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-start.ps1" | Invoke-Expression
+
+# Custom installation path (e.g. to D:\agent-vibes)
+$env:AGENT_VIBES_DIR="D:\agent-vibes"; Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-start.ps1" | Invoke-Expression
 ```
 
 **🍎 macOS / 🐧 Linux:**
 
 ```bash
+# Default installation path is ~/.agent-vibes
 curl -sSL https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-start.sh | bash
+
+# Custom installation path (e.g. to /opt/agent-vibes)
+curl -sSL https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-start.sh | bash -s -- /opt/agent-vibes
 ```
 
 - **Stop Service**: Press `Ctrl + C` in the running terminal.

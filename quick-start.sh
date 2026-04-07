@@ -5,7 +5,7 @@ echo "🚀 Starting Agent Vibes setup..."
 
 REPO_URL="https://github.com/fjiangming/agent-vibes.git"
 BRANCH="dev"
-TARGET_DIR="$HOME/.agent-vibes"
+TARGET_DIR="${AGENT_VIBES_DIR:-${1:-$HOME/.agent-vibes}}"
 
 if ! command -v node &> /dev/null; then
     echo "❌ Node.js is not installed. Please install Node.js v24 or later."
