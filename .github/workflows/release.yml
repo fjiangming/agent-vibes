@@ -239,13 +239,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download bridge binaries
-        uses: actions/download-artifact@v4
-        with:
-          path: binaries
-          pattern: bridge-*
-          merge-multiple: true
-
       - name: Download extension packages
         uses: actions/download-artifact@v4
         with:
@@ -254,9 +247,6 @@ jobs:
 
       - name: List release assets
         run: |
-          echo "── Bridge binaries ──"
-          ls -lh binaries/
-          echo ""
           echo "── VS Code extensions ──"
           ls -lh extensions/
 
@@ -264,7 +254,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            binaries/agent-vibes-bridge-*
             extensions/*.vsix
           generate_release_notes: true
           body: |
@@ -283,19 +272,3 @@ jobs:
             | macOS Intel | `agent-vibes-darwin-x64-*.vsix` |
             | Linux x64 | `agent-vibes-linux-x64-*.vsix` |
             | Windows x64 | `agent-vibes-win32-x64-*.vsix` |
-
-            ### Protocol Bridge Standalone Binaries
-
-            | Platform | Binary |
-            |----------|--------|
-            | macOS Apple Silicon | `agent-vibes-bridge-darwin-arm64` |
-            | macOS Intel | `agent-vibes-bridge-darwin-x64` |
-            | Linux x64 | `agent-vibes-bridge-linux-x64` |
-            | Windows x64 | `agent-vibes-bridge-win32-x64.exe` |
-
-            ```bash
-            # Standalone install (macOS/Linux)
-            mkdir -p ~/.agent-vibes/bin
-            cp agent-vibes-bridge-* ~/.agent-vibes/bin/agent-vibes-bridge
-            chmod +x ~/.agent-vibes/bin/agent-vibes-bridge
-            ```
