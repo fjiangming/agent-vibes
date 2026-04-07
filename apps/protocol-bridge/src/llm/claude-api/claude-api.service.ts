@@ -8,6 +8,7 @@ import { SocksProxyAgent } from "socks-proxy-agent"
 import type { CreateMessageDto } from "../../protocol/anthropic/dto/create-message.dto"
 import type { AnthropicResponse } from "../../shared/anthropic"
 import { applyPromptCachingOptimizations } from "./prompt-caching"
+import { cleanJsonSchema, deepCleanUndefined } from "./schema-cleaner"
 import {
   getAccountConfigPathCandidates,
   resolveLegacyAccountStatePath as resolveLegacyAccountStateJsonPath,
@@ -70,6 +71,7 @@ interface ClaudeApiAccount extends CooldownableAccount {
   baseUrl: string
   proxyUrl?: string
   stripThinking: boolean
+  sanitizeForProxy: boolean
   prefix?: string
   headers?: Record<string, string>
   models: ClaudeApiModelMapping[]
@@ -96,6 +98,7 @@ interface ClaudeApiAccountFileEntry {
   baseUrl?: string
   proxyUrl?: string
   stripThinking?: boolean
+  sanitizeForProxy?: boolean
   prefix?: string
   priority?: number
   headers?: Record<string, string>
@@ -309,6 +312,10 @@ export class ClaudeApiService implements OnModuleInit {
         }
         if (existing.stripThinking !== fresh.stripThinking) {
           existing.stripThinking = fresh.stripThinking
+          changed = true
+        }
+        if (existing.sanitizeForProxy !== fresh.sanitizeForProxy) {
+          existing.sanitizeForProxy = fresh.sanitizeForProxy
           changed = true
         }
         if (existing.priority !== fresh.priority) {
@@ -1060,6 +1067,7 @@ export class ClaudeApiService implements OnModuleInit {
     baseUrl?: string
     proxyUrl?: string
     stripThinking?: boolean
+    sanitizeForProxy?: boolean
     prefix?: string
     priority?: number
     headers?: Record<string, string>
@@ -1075,6 +1083,7 @@ export class ClaudeApiService implements OnModuleInit {
       baseUrl,
       proxyUrl: params.proxyUrl?.trim() || undefined,
       stripThinking: params.stripThinking === true,
+      sanitizeForProxy: params.sanitizeForProxy === true,
       prefix,
       priority:
         typeof params.priority === "number" && Number.isFinite(params.priority)
@@ -1406,6 +1415,7 @@ export class ClaudeApiService implements OnModuleInit {
               baseUrl: entry.baseUrl,
               proxyUrl: entry.proxyUrl,
               stripThinking: entry.stripThinking,
+              sanitizeForProxy: entry.sanitizeForProxy,
               prefix: entry.prefix,
               priority: entry.priority,
               headers: entry.headers,
@@ -2028,6 +2038,13 @@ export class ClaudeApiService implements OnModuleInit {
       delete raw.output_config
     }
 
+    // Sanitize tool input_schema for Vertex AI / Antigravity proxy backends.
+    // Strips $schema, additionalProperties, $ref/$defs, and other incompatible
+    // JSON Schema keywords that cause 400 INVALID_ARGUMENT errors.
+    if (account.sanitizeForProxy) {
+      this.sanitizeToolsForProxy(raw)
+    }
+
     if (
       options.applyPromptCaching &&
       this.shouldApplyOfficialAnthropicOptimizations(account)
@@ -2041,6 +2058,55 @@ export class ClaudeApiService implements OnModuleInit {
       body: raw,
       betas,
     }
+  }
+
+  /**
+   * Sanitise tool input_schema for Vertex AI / Antigravity proxy backends.
+   *
+   * Mirrors sub2api's `buildTools` flow:
+   *   1. Filter out web_search tools (handled natively by proxy)
+   *   2. DeepCleanUndefined  — remove "[undefined]" string values
+   *   3. CleanJSONSchema     — whitelist filter, $ref expansion, type normalisation
+   *   4. Fallback to empty object schema if cleaning returns null
+   *
+   * @see https://github.com/Wei-Shaw/sub2api schema_cleaner.go + request_transformer.go
+   */
+  private sanitizeToolsForProxy(body: Record<string, unknown>): void {
+    const tools = body.tools
+    if (!Array.isArray(tools)) return
+
+    const WEB_SEARCH_TYPES = new Set(["web_search_20250305", "web_search"])
+
+    const sanitized: unknown[] = []
+    for (const tool of tools) {
+      if (typeof tool !== "object" || tool === null) continue
+      const t = tool as Record<string, unknown>
+
+      // Skip web search tools (sub2api: isWebSearchTool)
+      const toolType = typeof t.type === "string" ? t.type : ""
+      const toolName = typeof t.name === "string" ? t.name.trim() : ""
+      if (WEB_SEARCH_TYPES.has(toolType) || WEB_SEARCH_TYPES.has(toolName)) {
+        continue
+      }
+      if (toolName === "") continue
+
+      // Clean input_schema
+      const inputSchema = t.input_schema
+      if (
+        inputSchema &&
+        typeof inputSchema === "object" &&
+        !Array.isArray(inputSchema)
+      ) {
+        const schema = inputSchema as Record<string, unknown>
+        deepCleanUndefined(schema)
+        const cleaned = cleanJsonSchema(schema)
+        t.input_schema = cleaned ?? { type: "object", properties: {} }
+      }
+
+      sanitized.push(t)
+    }
+
+    body.tools = sanitized
   }
 
   private getAvailableCandidatesInAttemptOrder(

@@ -186,6 +186,7 @@ agent-vibes forward status
 > **⚠️ 关于 Antigravity 模式（Google Cloud Code 原生反代）的重要警告**
 >
 > 当使用原生的 Antigravity/Google 请求路径时，本项目会向模型的每一次请求中**强制注入一段极大的硬编码系统提示词**（约 35,000 字符）。这是为了模拟官方 Antigravity/Cloud Code 客户端的行为并满足其后端校验，但由此会带来一些严重的副作用：
+>
 > - **“降智”与指令冲突：** 模型被强迫遵守这套严苛且预先设定好的 Agent 规则（例如强制要求所有 Web 应用具备特定 UI 结构、玻璃拟物化风格、必须加 SEO 规则等），这经常会与你通过 Cursor 给出的明确直接的任务指令发生冲突或表现为“画蛇添足”。
 > - **上下文挤占与失忆：** 请求一建立就先消耗了近 1 万 tokens 的容量，这严重限制了有效上下文窗口的长度，导致模型比常规情况更早开始遗忘前面的对话记录。
 > - **建议：** 如果你追求原汁原味的模型推理能力，反感这些主观强加的系统级 UI 预设行为，强烈建议切换配置，转而走 **Codex (GPT)** 路径或者 **Claude API** 转发路径。仅在明确期望体验它那套重度预设的 Agent 风格表现时，再使用原生 Antigravity 路线。
@@ -295,6 +296,12 @@ agent-vibes sync --codex
           "alias": "claude-4.6-opus-thinking"
         }
       ]
+    },
+    {
+      "label": "cpa-proxy",
+      "apiKey": "sk-cpa-zzz",
+      "baseUrl": "https://cpa.example.com",
+      "sanitizeForProxy": true
     }
   ]
 }
@@ -309,6 +316,16 @@ agent-vibes sync --codex
 - 如果没有配置 `models`，代理会优先尝试从上游 `GET /v1/models` 动态发现可用模型；发现失败时，仍会保留内置默认列表并继续支持 Claude-family 模型名原样透传。
 - 如果配置了 `models`，则以手动映射为准，不再自动发现该账号的模型列表。
 - `stripThinking=true` 时，会在转发前移除 Anthropic thinking 相关字段，适合只支持基础 Claude 模型名的第三方端点。
+- `sanitizeForProxy=true` 开启面向代理后端（如 CLIProxyAPI → Vertex AI / Antigravity）的请求体预清洗。
+  启用后，所有工具的 `input_schema` 定义会在转发前被清理：
+  - 剥离 `$schema`、`additionalProperties`、`$ref`/`$defs`、`default`、`format` 等 Gemini/Vertex AI 不支持的 JSON Schema 关键字。
+  - 使用严格白名单（`type`、`description`、`properties`、`required`、`items`、`enum`、`title`）。
+  - 内联展开 `$ref`/`$defs`，解析 `anyOf`/`oneOf`/`allOf` 联合类型，规范化类型数组（`["string","null"]` → `"string"` 并标注 `(nullable)`）。
+  - 为空 object 补充占位 property，对齐 `required` 与实际 `properties`。
+  - 不支持的约束（如 `minLength`、`pattern`）迁移到 description 文本中。
+  - 过滤掉 `web_search` 类型的工具（由代理原生处理）。
+    此功能可解决来自 Vertex AI/Gemini 后端的 `400 INVALID_ARGUMENT` 错误。
+    仅对走 Claude→Gemini 代理转换的账号启用；直连 Anthropic 的账号保持关闭即可（默认：`false`）。
 - `excludedModels` 支持大小写不敏感的通配符写法，例如 `claude-3-*`、`*-thinking`、`*haiku*`。
 - 官方 `api.anthropic.com` 使用 `x-api-key`；第三方兼容端点使用 `Authorization: Bearer ...`。
 

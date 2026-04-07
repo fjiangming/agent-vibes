@@ -317,6 +317,12 @@ Configuration:
           "alias": "claude-4.6-opus-thinking"
         }
       ]
+    },
+    {
+      "label": "cpa-proxy",
+      "apiKey": "sk-cpa-zzz",
+      "baseUrl": "https://cpa.example.com",
+      "sanitizeForProxy": true
     }
   ]
 }
@@ -332,6 +338,18 @@ Behavior:
   if discovery is unavailable, it falls back to the built-in defaults and still allows Claude-family passthrough.
 - If `models` is configured, the explicit mappings take precedence and automatic discovery is skipped for that account.
 - `stripThinking=true` removes Anthropic thinking fields before forwarding for providers that only support the base Claude model name.
+- `sanitizeForProxy=true` enables pre-emptive payload sanitization for proxy backends
+  (e.g. CLIProxyAPI → Vertex AI / Antigravity). When enabled, all tool `input_schema`
+  definitions are cleaned before forwarding:
+  - Strips `$schema`, `additionalProperties`, `$ref`/`$defs`, `default`, `format`, and other JSON Schema keywords unsupported by the Gemini/Vertex AI API.
+  - Uses a strict whitelist (`type`, `description`, `properties`, `required`, `items`, `enum`, `title`).
+  - Expands `$ref`/`$defs` inline, resolves `anyOf`/`oneOf`/`allOf` unions, normalises type arrays (`["string","null"]` → `"string"` with `(nullable)`).
+  - Fills empty object schemas with a placeholder property and aligns `required` with available `properties`.
+  - Migrates unsupported constraints (e.g. `minLength`, `pattern`) into the description text.
+  - Filters out `web_search` type tools (handled natively by the proxy).
+    This resolves `400 INVALID_ARGUMENT` errors from Vertex AI/Gemini backends. Enable this
+    only for accounts routing through a Claude-to-Gemini proxy; direct Anthropic accounts
+    should leave it disabled (default: `false`).
 - `excludedModels` supports case-insensitive wildcard patterns such as `claude-3-*`, `*-thinking`, or `*haiku*`.
 - Official `api.anthropic.com` accounts use `x-api-key`; third-party endpoints use `Authorization: Bearer ...`.
 
