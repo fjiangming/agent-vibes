@@ -49,6 +49,7 @@ import {
   BackendPoolStatus,
 } from "../shared/backend-pool-status"
 import { sanitizeOpenAiChatToolCallIntegrity } from "../shared/openai-tool-call-integrity"
+import { detectModelFamily } from "../model-registry"
 
 // ── Types for OpenAI Chat Completions API ──────────────────────────────
 
@@ -388,6 +389,7 @@ interface OpenaiCompatAccount extends CooldownableAccount {
   baseUrl: string
   proxyUrl?: string
   preferResponsesApi?: boolean
+  responsesApiModels?: string[]
   source: "env" | "file"
   stateKey: string
 }
@@ -451,22 +453,53 @@ export class OpenaiCompatService implements OnModuleInit {
     // No-op: PersistenceService handles the unified DB path.
   }
 
+  private parseResponsesApiModels(val: unknown): string[] | undefined {
+    if (!val) return undefined
+    if (typeof val === "string") {
+      const models = val.split(",").map((v) => v.trim()).filter(Boolean)
+      return models.length > 0 ? models : undefined
+    }
+    if (Array.isArray(val)) {
+      const models = val
+        .filter((v) => typeof v === "string" && v.trim() !== "")
+        .map((v) => v.trim())
+      return models.length > 0 ? models : undefined
+    }
+    return undefined
+  }
+
   private buildAccountRecord(params: {
     label?: string
     apiKey: string
     baseUrl: string
     proxyUrl?: string
     preferResponsesApi?: boolean
+    responsesApiModels?: string[]
     source: "env" | "file"
   }): OpenaiCompatAccount {
+    let cleanBaseUrl = params.baseUrl.trim()
+    
+    // First remove trailing slashes so endsWith works reliably
+    cleanBaseUrl = cleanBaseUrl.replace(/\/+$/, "")
+    
+    if (cleanBaseUrl.endsWith("/responses")) {
+        cleanBaseUrl = cleanBaseUrl.slice(0, -"/responses".length)
+    } else if (cleanBaseUrl.endsWith("/chat/completions")) {
+        cleanBaseUrl = cleanBaseUrl.slice(0, -"/chat/completions".length)
+    }
+    
+    // Trim slashes again just in case there were multiple like //v1/responses
+    cleanBaseUrl = cleanBaseUrl.replace(/\/+$/, "")
+
     return {
       label: params.label,
       apiKey: params.apiKey,
-      baseUrl: params.baseUrl,
+      baseUrl: cleanBaseUrl,
       proxyUrl: params.proxyUrl,
       preferResponsesApi: params.preferResponsesApi,
+      responsesApiModels: params.responsesApiModels,
       source: params.source,
-      stateKey: this.buildAccountStateKey(params.apiKey, params.baseUrl),
+      stateKey: this.buildAccountStateKey(params.apiKey, cleanBaseUrl),
       cooldownUntil: 0,
       modelStates: new Map(),
     }
@@ -817,12 +850,15 @@ export class OpenaiCompatService implements OnModuleInit {
         (a) => a.apiKey === envApiKey && a.baseUrl === envBaseUrl
       )
       if (!alreadyExists) {
+        const responsesModelsEnv = this.configService.get<string>("OPENAI_COMPAT_RESPONSES_API_MODELS", "")
+        
         this.accounts.unshift(
           this.buildAccountRecord({
             label: "env",
             apiKey: envApiKey,
             baseUrl: envBaseUrl,
             proxyUrl: envProxyUrl || undefined,
+            responsesApiModels: this.parseResponsesApiModels(responsesModelsEnv),
             source: "env",
           })
         )
@@ -895,7 +931,7 @@ export class OpenaiCompatService implements OnModuleInit {
 
       try {
         const data = JSON.parse(fs.readFileSync(configPath, "utf-8")) as {
-          accounts?: Array<Record<string, string>>
+          accounts?: Array<Record<string, unknown>>
         }
         if (Array.isArray(data.accounts) && data.accounts.length > 0) {
           this.accountsConfigPath = configPath
@@ -907,7 +943,7 @@ export class OpenaiCompatService implements OnModuleInit {
             .filter(
               (
                 a
-              ): a is Record<string, string> & {
+              ): a is Record<string, unknown> & {
                 apiKey: string
                 baseUrl: string
               } =>
@@ -918,13 +954,14 @@ export class OpenaiCompatService implements OnModuleInit {
             )
             .map((a) =>
               this.buildAccountRecord({
-                label: a.label,
+                label: typeof a.label === "string" ? a.label : undefined,
                 apiKey: a.apiKey,
                 baseUrl: a.baseUrl,
-                proxyUrl: a.proxyUrl,
+                proxyUrl: typeof a.proxyUrl === "string" ? a.proxyUrl : undefined,
                 preferResponsesApi:
                   a.preferResponsesApi === "true" ||
-                  (a as Record<string, unknown>).preferResponsesApi === true,
+                  a.preferResponsesApi === true,
+                responsesApiModels: this.parseResponsesApiModels(a.responsesApiModels),
                 source: "file",
               })
             )
@@ -1037,6 +1074,47 @@ export class OpenaiCompatService implements OnModuleInit {
    */
   checkAvailability(): Promise<boolean> {
     return Promise.resolve(this.isAvailable())
+  }
+
+  /**
+   * Check if any configured account supports the requested model.
+   * - If `responsesApiModels` is provided, the account ONLY supports models matching the prefixes in the array.
+   * - If `responsesApiModels` is omitted, the account natively supports OpenAI (GPT family, o1, o3, codex, text-) models by default.
+   */
+  public supportsModel(model: string): boolean {
+    if (!this.isAvailable()) return false
+
+    const normalized = model.toLowerCase().trim()
+    for (const account of this.accounts) {
+      if (isAccountDisabled(account)) continue
+
+      if (
+        account.responsesApiModels &&
+        Array.isArray(account.responsesApiModels)
+      ) {
+        // If responsesApiModels is specified, it acts as an explicit whitelist of supported models.
+        if (
+          account.responsesApiModels.some((prefix) =>
+            normalized.includes(prefix.toLowerCase())
+          )
+        ) {
+          return true
+        }
+      } else {
+        // Default behavior: assume standard OpenAI compat endpoints (supports gpt, o1, o3, etc.)
+        const family = detectModelFamily(normalized)
+        if (
+          family === "gpt" ||
+          normalized.includes("o1") ||
+          normalized.includes("o3") ||
+          normalized.includes("codex") ||
+          normalized.includes("text-")
+        ) {
+          return true
+        }
+      }
+    }
+    return false
   }
 
   getPoolStatus(): BackendPoolStatus {
@@ -1618,7 +1696,13 @@ export class OpenaiCompatService implements OnModuleInit {
   /**
    * Check if a model is eligible for Responses API routing.
    */
-  private isResponsesApiEligible(model: string): boolean {
+  private isResponsesApiEligible(model: string, account?: OpenaiCompatAccount): boolean {
+    const normalized = model.toLowerCase().trim()
+    if (account?.responsesApiModels && Array.isArray(account.responsesApiModels)) {
+      if (account.responsesApiModels.some(prefix => normalized.includes(prefix.toLowerCase()))) {
+        return true
+      }
+    }
     return supportsOpenAiCompatReasoning(model)
   }
 
@@ -1634,14 +1718,14 @@ export class OpenaiCompatService implements OnModuleInit {
     const normalizedModel = model.toLowerCase().trim()
 
     // Per-account override: preferResponsesApi takes highest priority
-    if (account?.preferResponsesApi && this.isResponsesApiEligible(model)) {
+    if (account?.preferResponsesApi && this.isResponsesApiEligible(model, account)) {
       return "responses"
     }
 
     // Mode: always → force Responses API for eligible models
     if (
       this.responsesApiMode === "always" &&
-      this.isResponsesApiEligible(model)
+      this.isResponsesApiEligible(model, account)
     ) {
       return "responses"
     }
@@ -1682,10 +1766,11 @@ export class OpenaiCompatService implements OnModuleInit {
   private shouldFallbackToResponsesApi(
     status: number,
     errorBody: string,
-    model: string
+    model: string,
+    account?: OpenaiCompatAccount
   ): boolean {
     if (this.responsesApiMode === "never") return false
-    if (!this.isResponsesApiEligible(model)) return false
+    if (!this.isResponsesApiEligible(model, account)) return false
 
     // 503 with "no_available_providers" is the classic case
     if (status === 503) return true
@@ -1713,10 +1798,11 @@ export class OpenaiCompatService implements OnModuleInit {
 
   private shouldFallbackToChatCompletionsApi(
     error: unknown,
-    model: string
+    model: string,
+    account?: OpenaiCompatAccount
   ): boolean {
     if (this.responsesApiMode === "always") return false
-    if (!this.isResponsesApiEligible(model)) return false
+    if (!this.isResponsesApiEligible(model, account)) return false
     if (error instanceof BackendAccountPoolUnavailableError) return false
     if (error instanceof BackendApiError && error.permanent) return false
 
@@ -1777,7 +1863,7 @@ export class OpenaiCompatService implements OnModuleInit {
         this.recordEndpointSuccess(dto.model, "responses", account)
         return result
       } catch (e) {
-        if (!this.shouldFallbackToChatCompletionsApi(e, dto.model)) {
+        if (!this.shouldFallbackToChatCompletionsApi(e, dto.model, account)) {
           throw e
         }
         this.logger.warn(
@@ -1802,7 +1888,7 @@ export class OpenaiCompatService implements OnModuleInit {
 
       if (
         endpoint !== "responses" &&
-        this.shouldFallbackToResponsesApi(status, errorMsg, dto.model)
+        this.shouldFallbackToResponsesApi(status, errorMsg, dto.model, account)
       ) {
         this.logger.warn(
           `[OpenAI-Compat] Chat Completions returned ${status} for ${dto.model}, falling back to Responses API`
@@ -2007,7 +2093,7 @@ export class OpenaiCompatService implements OnModuleInit {
       } catch (e) {
         if (
           emittedResponsesEvents ||
-          !this.shouldFallbackToChatCompletionsApi(e, dto.model)
+          !this.shouldFallbackToChatCompletionsApi(e, dto.model, account)
         ) {
           throw e
         }
@@ -2036,7 +2122,7 @@ export class OpenaiCompatService implements OnModuleInit {
       if (
         !emittedChatEvents &&
         endpoint !== "responses" &&
-        this.shouldFallbackToResponsesApi(status, errorMsg, dto.model)
+        this.shouldFallbackToResponsesApi(status, errorMsg, dto.model, account)
       ) {
         this.logger.warn(
           `[OpenAI-Compat] Chat Completions stream returned ${status} for ${dto.model}, falling back to Responses API`
@@ -2099,7 +2185,7 @@ export class OpenaiCompatService implements OnModuleInit {
     if (!response.ok) {
       const errorBody = await response.text()
       this.logger.error(
-        `[OpenAI-Compat] Stream request failed: status=${response.status}, body=${errorBody.slice(0, 500)}`
+        `[OpenAI-Compat] Stream request failed: url=${url}, status=${response.status}, body=${errorBody.slice(0, 500)}`
       )
       throw this.buildHttpFailureError(
         account,
@@ -2783,7 +2869,7 @@ export class OpenaiCompatService implements OnModuleInit {
     if (!response.ok) {
       const errorBody = await response.text()
       this.logger.error(
-        `[OpenAI-Compat/Responses] Stream request failed: status=${response.status}, body=${errorBody.slice(0, 500)}`
+        `[OpenAI-Compat/Responses] Stream request failed: url=${url}, status=${response.status}, body=${errorBody.slice(0, 500)}`
       )
       throw this.buildHttpFailureError(
         account,

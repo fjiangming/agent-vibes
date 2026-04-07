@@ -92,11 +92,10 @@ export class CursorAdapterController {
     }
 
     if (resolved.family === "gpt") {
-      if (this.openaiCompatService.isAvailable()) {
-        return true
-      }
-
-      return this.codexService.supportsModel(modelId)
+      return (
+        this.openaiCompatService.supportsModel(modelId) ||
+        this.codexService.supportsModel(modelId)
+      )
     }
 
     if (resolved.family === "gemini") {
@@ -108,6 +107,7 @@ export class CursorAdapterController {
 
     return (
       this.claudeApiService.supportsModel(modelId) ||
+      this.openaiCompatService.supportsModel(modelId) ||
       (this.modelRouter.isGoogleAvailable &&
         canPublicClaudeModelUseGoogle(modelId) &&
         this.googleModelCache.isValidModel(resolved.cloudCodeId))

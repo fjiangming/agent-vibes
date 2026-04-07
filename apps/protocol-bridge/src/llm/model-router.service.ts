@@ -59,7 +59,9 @@ export class ModelRouterService {
   private openaiCompatAvailable = false
   private claudeApiAvailable = false
   private codexAvailabilityProvider?: () => boolean
+  private codexSupportsModelProvider?: (model: string) => boolean
   private openaiCompatAvailabilityProvider?: () => boolean
+  private openaiCompatSupportsModelProvider?: (model: string) => boolean
   private claudeApiAvailabilityProvider?: (model: string) => boolean
 
   /**
@@ -167,17 +169,24 @@ export class ModelRouterService {
 
   setGptAvailabilityProviders(providers: {
     codex?: () => boolean
+    codexSupportsModel?: (model: string) => boolean
     openaiCompat?: () => boolean
+    openaiCompatSupportsModel?: (model: string) => boolean
   }): void {
     this.codexAvailabilityProvider = providers.codex
+    this.codexSupportsModelProvider = providers.codexSupportsModel
     this.openaiCompatAvailabilityProvider = providers.openaiCompat
+    this.openaiCompatSupportsModelProvider = providers.openaiCompatSupportsModel
   }
 
   setClaudeAvailabilityProvider(provider?: (model: string) => boolean): void {
     this.claudeApiAvailabilityProvider = provider
   }
 
-  private getCodexAvailability(): boolean {
+  private getCodexAvailability(model?: string): boolean {
+    if (model && this.codexSupportsModelProvider) {
+      return this.codexSupportsModelProvider(model)
+    }
     return this.codexAvailabilityProvider
       ? this.codexAvailabilityProvider()
       : this.codexAvailable
@@ -186,6 +195,12 @@ export class ModelRouterService {
   private getOpenaiCompatAvailability(): boolean {
     return this.openaiCompatAvailabilityProvider
       ? this.openaiCompatAvailabilityProvider()
+      : this.openaiCompatAvailable
+  }
+
+  private getOpenaiCompatSupportsModel(model: string): boolean {
+    return this.openaiCompatSupportsModelProvider
+      ? this.openaiCompatSupportsModelProvider(model)
       : this.openaiCompatAvailable
   }
 
@@ -200,8 +215,8 @@ export class ModelRouterService {
     isThinking: boolean
   }): GptBackendCandidates | null {
     const candidates: ModelRouteResult[] = []
-    const openaiCompatAvailable = this.getOpenaiCompatAvailability()
-    const codexAvailable = this.getCodexAvailability()
+    const openaiCompatAvailable = this.getOpenaiCompatSupportsModel(target.model)
+    const codexAvailable = this.getCodexAvailability(target.model)
 
     // Codex first, openai-compat as fallback
     if (codexAvailable) {
@@ -284,6 +299,14 @@ export class ModelRouterService {
     if (claudeApiAvailable) {
       candidates.push({
         backend: "claude-api",
+        model: normalized,
+        isThinking: entry?.isThinking ?? doesModelSupportThinking(normalized),
+      })
+    }
+
+    if (this.getOpenaiCompatSupportsModel(normalized)) {
+      candidates.push({
+        backend: "openai-compat",
         model: normalized,
         isThinking: entry?.isThinking ?? doesModelSupportThinking(normalized),
       })
@@ -381,18 +404,8 @@ export class ModelRouterService {
       return false
     }
 
-    if (
-      (currentBackend !== "openai-compat" && currentBackend !== "codex") ||
-      (fallbackBackend !== "openai-compat" && fallbackBackend !== "codex")
-    ) {
-      const claudePair =
-        (currentBackend === "claude-api" &&
-          fallbackBackend === "google-claude") ||
-        (currentBackend === "google-claude" && fallbackBackend === "claude-api")
-      if (!claudePair) {
-        return false
-      }
-    }
+    // Routing candidates logic (getFallbackRoute) already ensures fallbackBackend is valid for the given model.
+    // We only need to check if the error type warrants a fallback.
 
     const message =
       error instanceof Error

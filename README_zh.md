@@ -122,7 +122,16 @@ mkcert -install
 agent-vibes cert
 ```
 
-上面这一步完成安装。下面开始选择你的上游来源。
+上面这一步完成安装。
+
+**干净卸载：**
+
+```bash
+npm rm -g agent-vibes             # 移除全局命令
+rm -rf ~/.agent-vibes             # 清除用户数据（Windows 用户请执行：Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"）
+```
+
+下面开始选择你的上游来源。
 
 ### 选择一个上游来源
 
@@ -322,8 +331,14 @@ agent-vibes sync --codex
       "label": "provider-2",
       "baseUrl": "https://b.example.com/v1",
       "apiKey": "sk-yyy",
-      "proxyUrl": "http://127.0.0.1:7897",
-      "preferResponsesApi": true
+      "proxyUrl": "http://127.0.0.1:7897"
+    },
+    {
+      "label": "claude-provider",
+      "baseUrl": "https://c.example.com/v1",
+      "apiKey": "sk-zzz",
+      "preferResponsesApi": true,
+      "responsesApiModels": ["claude"]
     }
   ]
 }
@@ -332,10 +347,13 @@ agent-vibes sync --codex
 行为：
 
 - Codex 和 OpenAI 兼容后端都支持多账号轮转。
-- 同时配置 OpenAI 兼容后端和 Codex 后端时，GPT 请求优先走 OpenAI 兼容后端。
+- 同时配置 OpenAI 兼容后端和 Codex 后端时，针对具体模型如果有 OpenAI 端点支持，则优先走 OpenAI 兼容后端；否则回退到 Codex（如 OpenAI 端点没配置对应的 gpt 账号时）。
 - 额度耗尽时自动切换到下一个可用账号。
 - `proxyUrl` 可为该账号指定 HTTP/SOCKS 代理地址。
 - `preferResponsesApi=true` 时使用 OpenAI Responses API（`/v1/responses`）代替 Chat Completions。
+- `responsesApiModels` 列表有两个作用（支持字符串数组，或逗号分隔的字符串）：
+  1. **模型白名单**：显式声明该账号支持哪些模型（前缀匹配）。未配置此项时，账号默认只支持原生 OpenAI 模型（如 `gpt`, `o1`, `o3` 等）。如果配置了此项（例如 `["claude", "gemini"]`），则该账号**只会**支持指定列表中的模型。这允许在 OpenAI-compat 类型中接入各类只支持特定模型的第三方 API 转发层，使得底层路由能够精准分辨。当没有 OpenAI-compat 账号支持所请求的模型（如 `gpt`）时，框架能正确回退到其他后端（如 `codex`）。
+  2. **Responses API 路由**：当开启了 `preferResponsesApi: true` 时，只有在此列表中匹配的模型，才会改为通过 `/v1/responses` 访问；即便没开启，也能充当纯白名单路由作用。
 
 ### 3. Claude API
 

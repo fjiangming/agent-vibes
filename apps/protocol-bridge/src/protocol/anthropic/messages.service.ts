@@ -65,7 +65,9 @@ export class MessagesService implements OnModuleInit {
     )
     this.modelRouter.setGptAvailabilityProviders({
       codex: () => this.codexService.isAvailable(),
+      codexSupportsModel: (model) => this.codexService.supportsModel(model),
       openaiCompat: () => this.openaiCompatService.isAvailable(),
+      openaiCompatSupportsModel: (model) => this.openaiCompatService.supportsModel(model),
     })
     this.modelRouter.setClaudeAvailabilityProvider((model) =>
       this.claudeApiService.supportsModel(model)
@@ -648,11 +650,10 @@ export class MessagesService implements OnModuleInit {
       }
 
       if (resolved.family === "gpt") {
-        if (this.openaiCompatService.isAvailable()) {
-          return true
-        }
-
-        return this.codexService.supportsModel(modelId)
+        return (
+          this.openaiCompatService.supportsModel(modelId) ||
+          this.codexService.supportsModel(modelId)
+        )
       }
 
       if (resolved.family === "gemini") {
@@ -661,6 +662,7 @@ export class MessagesService implements OnModuleInit {
 
       return (
         this.claudeApiService.supportsModel(modelId) ||
+        this.openaiCompatService.supportsModel(modelId) ||
         canRouteViaGoogle(modelId)
       )
     }

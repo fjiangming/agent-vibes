@@ -139,6 +139,15 @@ mkcert -install
 agent-vibes cert
 ```
 
+This step completes the installation.
+
+**Clean Uninstall:**
+
+```bash
+npm rm -g agent-vibes             # remove the global command
+rm -rf ~/.agent-vibes             # clear user data (Windows users: Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes")
+```
+
 ### Choose One Upstream Source
 
 Antigravity ([Antigravity IDE](https://antigravity.google) or [Antigravity Manager](https://github.com/lbjlaq/Antigravity-Manager)):
