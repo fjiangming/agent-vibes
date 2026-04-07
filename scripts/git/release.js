@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require("node:child_process")
+const fs = require("node:fs")
 const path = require("node:path")
 
 const ROOT = path.resolve(__dirname, "..", "..")
+const EXT_PKG = path.join(ROOT, "apps", "vscode-extension", "package.json")
 
 function parseArgs(argv) {
   const parsed = {
     source: "dev",
     target: "main",
     remote: "origin",
+    bump: "patch", // patch | minor | major | current
+    noTag: false,
     help: false,
   }
 
@@ -31,6 +35,26 @@ function parseArgs(argv) {
       parsed.remote = argv[++i]
       continue
     }
+    if (arg === "--patch") {
+      parsed.bump = "patch"
+      continue
+    }
+    if (arg === "--minor") {
+      parsed.bump = "minor"
+      continue
+    }
+    if (arg === "--major") {
+      parsed.bump = "major"
+      continue
+    }
+    if (arg === "--current") {
+      parsed.bump = "current"
+      continue
+    }
+    if (arg === "--no-tag") {
+      parsed.noTag = true
+      continue
+    }
 
     throw new Error(`Unknown argument: ${arg}`)
   }
@@ -39,15 +63,24 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: npm run release -- [--source dev] [--target main] [--remote origin]
+  console.log(`Usage: npm run release [-- options]
 
-Default behavior:
-1. Ensure the worktree is clean
-2. Update and push source branch
-3. Switch to target branch
-4. Merge source into target
-5. Push target branch
-6. Switch back to the branch you started on`)
+Steps:
+  1. Bump version in apps/vscode-extension/package.json
+  2. Commit version bump on source branch and push
+  3. Merge source into target and push
+  4. Create and push version tag (triggers release CI)
+  5. Switch back to source branch
+
+Options:
+  --patch     Bump patch version (default)  e.g. 0.1.0 → 0.1.1
+  --minor     Bump minor version            e.g. 0.1.0 → 0.2.0
+  --major     Bump major version            e.g. 0.1.0 → 1.0.0
+  --current   Use current version as-is, no bump
+  --no-tag    Merge only, skip version bump and tag
+  --source    Source branch (default: dev)
+  --target    Target branch (default: main)
+  --remote    Git remote (default: origin)`)
 }
 
 function runGit(args, options = {}) {
@@ -111,6 +144,41 @@ function step(message) {
   console.log(`\n> ${message}`)
 }
 
+/**
+ * Bump version in apps/vscode-extension/package.json.
+ * Returns { oldVersion, newVersion }.
+ */
+function bumpVersion(type) {
+  const pkg = JSON.parse(fs.readFileSync(EXT_PKG, "utf8"))
+  const old = pkg.version
+  if (!old) {
+    throw new Error("No version field in apps/vscode-extension/package.json")
+  }
+
+  const parts = old.split(".").map(Number)
+  if (parts.length !== 3 || parts.some(isNaN)) {
+    throw new Error(`Invalid version format: ${old}`)
+  }
+
+  let [major, minor, patch] = parts
+  if (type === "major") {
+    major++
+    minor = 0
+    patch = 0
+  } else if (type === "minor") {
+    minor++
+    patch = 0
+  } else {
+    patch++
+  }
+
+  const next = `${major}.${minor}.${patch}`
+  pkg.version = next
+  fs.writeFileSync(EXT_PKG, JSON.stringify(pkg, null, 2) + "\n")
+
+  return { oldVersion: old, newVersion: next }
+}
+
 function switchBranch(branch, options = {}) {
   runGit(["switch", branch], options)
 }
@@ -143,6 +211,25 @@ function main() {
     step(`Updating ${source}`)
     runGit(["pull", "--ff-only", remote, source])
 
+    // ── Bump version on source branch ────────────────────────────────
+    let tag
+    if (!args.noTag) {
+      if (args.bump === "current") {
+        // Use current version as-is, no bump
+        const pkg = JSON.parse(fs.readFileSync(EXT_PKG, "utf8"))
+        tag = `v${pkg.version}`
+        step(`Using current version ${pkg.version}`)
+      } else {
+        step(`Bumping ${args.bump} version`)
+        const { oldVersion, newVersion } = bumpVersion(args.bump)
+        tag = `v${newVersion}`
+        console.log(`  ${oldVersion} → ${newVersion}`)
+
+        runGit(["add", EXT_PKG])
+        runGit(["commit", "-m", `chore: release ${tag}`], { capture: true })
+      }
+    }
+
     step(`Pushing ${source}`)
     runGit(["push", remote, source])
 
@@ -158,9 +245,18 @@ function main() {
     step(`Pushing ${target}`)
     runGit(["push", remote, target])
 
-    console.log(
-      `\nMerged ${source} into ${target}, pushed both branches, and restored your branch.`
-    )
+    // ── Tag and push ─────────────────────────────────────────────────
+    if (!args.noTag && tag) {
+      step(`Creating tag ${tag}`)
+      runGit(["tag", "-a", tag, "-m", `Release ${tag}`])
+
+      step(`Pushing tag ${tag} (triggers release workflow)`)
+      runGit(["push", remote, tag])
+
+      console.log(`\n✅ Released ${tag} — workflow will start shortly.`)
+    }
+
+    console.log(`\nDone. Merged ${source} → ${target}.`)
   } catch (error) {
     if (hasMergeInProgress()) {
       step("Merge failed, aborting in-progress merge")
