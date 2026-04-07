@@ -243,8 +243,8 @@
     "types": "tsc --noEmit",
     "package": "npm run prepare:pack && npx @vscode/vsce package --no-dependencies",
     "package:fast": "npm run prepare:pack:fast && npx @vscode/vsce package --no-dependencies",
-    "pack": "npm run package && cursor --install-extension agent-vibes-0.1.0.vsix --force && npm run restart:bridge",
-    "pack:fast": "npm run package:fast && cursor --install-extension agent-vibes-0.1.0.vsix --force && npm run restart:bridge",
+    "pack": "npm run package && cursor --install-extension agent-vibes-$npm_package_version.vsix --force && npm run restart:bridge",
+    "pack:fast": "npm run package:fast && cursor --install-extension agent-vibes-$npm_package_version.vsix --force && npm run restart:bridge",
     "clean": "node ../../scripts/rm-paths.js dist node_modules .turbo"
   },
   "dependencies": {

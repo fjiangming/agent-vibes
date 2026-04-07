@@ -144,6 +144,23 @@ function step(message) {
   console.log(`\n> ${message}`)
 }
 
+function runNode(scriptPath) {
+  const result = spawnSync(process.execPath, [scriptPath], {
+    cwd: ROOT,
+    encoding: "utf8",
+    stdio: "inherit",
+  })
+
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`${scriptPath} exited with code ${result.status}`)
+  }
+}
+
+function syncReleaseDocs() {
+  runNode(path.join("apps", "vscode-extension", "scripts", "sync-readme.mjs"))
+}
+
 /**
  * Bump version in apps/vscode-extension/package.json.
  * Returns { oldVersion, newVersion }.
@@ -224,8 +241,20 @@ function main() {
         const { oldVersion, newVersion } = bumpVersion(args.bump)
         tag = `v${newVersion}`
         console.log(`  ${oldVersion} → ${newVersion}`)
+      }
 
-        runGit(["add", EXT_PKG])
+      step("Syncing release docs")
+      syncReleaseDocs()
+
+      const statusAfterSync = gitOutput(["status", "--porcelain"])
+      if (statusAfterSync) {
+        runGit([
+          "add",
+          EXT_PKG,
+          "README.md",
+          "README_zh.md",
+          path.join("apps", "vscode-extension", "README.md"),
+        ])
         runGit(["commit", "-m", `chore: release ${tag}`], { capture: true })
       }
     }

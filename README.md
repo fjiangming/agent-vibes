@@ -155,16 +155,16 @@ Download the `.vsix` for your platform from [GitHub Releases](https://github.com
 
 ```bash
 # macOS Apple Silicon
-cursor --install-extension agent-vibes-darwin-arm64-*.vsix --force
+cursor --install-extension agent-vibes-darwin-arm64-0.1.0.vsix --force
 
 # macOS Intel
-cursor --install-extension agent-vibes-darwin-x64-*.vsix --force
+cursor --install-extension agent-vibes-darwin-x64-0.1.0.vsix --force
 
 # Linux x64
-cursor --install-extension agent-vibes-linux-x64-*.vsix --force
+cursor --install-extension agent-vibes-linux-x64-0.1.0.vsix --force
 
 # Windows x64
-cursor --install-extension agent-vibes-win32-x64-*.vsix --force
+cursor --install-extension agent-vibes-win32-x64-0.1.0.vsix --force
 ```
 
 Restart Cursor after installation.
