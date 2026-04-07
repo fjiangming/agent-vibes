@@ -94,7 +94,9 @@ curl -sSL https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-sta
 ```
 
 - **停止服务**：在运行服务的终端中按下 `Ctrl + C` 即可。
-- **干净卸载**：只需删除用户主目录下的 `.agent-vibes` 文件夹（Windows 可执行 `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`，macOS/Linux 执行 `rm -rf ~/.agent-vibes`），没有任何注册表或全局污染。
+- **如何更新**：无论是一键安装还是自定义路径安装，你只需要**重新执行一次你安装时运行的命令**即可。
+  脚本会自动检测已存在的目录，使用 `git fetch` 和 `git reset --hard origin/dev` 拉取最新代码并强制重新编译安装依赖。
+- **干净卸载**：只需删除用户主目录下的 `.agent-vibes` 文件夹（Windows 可执行 `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`，macOS/Linux 执行 `rm -rf ~/.agent-vibes`），没有任何注册表或全局系统污染。
 
 ### 手动源码安装（进阶）
 

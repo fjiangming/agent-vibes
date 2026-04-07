@@ -108,6 +108,8 @@ curl -sSL https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-sta
 ```
 
 - **Stop Service**: Press `Ctrl + C` in the running terminal.
+- **Update Service**: Whether you installed using the default or custom path, simply **re-run the exact same command you used to install**.
+  The script will automatically detect the existing directory, pull the latest code using `git fetch` and `git reset --hard origin/dev`, reinstall dependencies, and restart.
 - **Clean Uninstall**: Simply delete the `.agent-vibes` folder in your home
   directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`,
   macOS/Linux: `rm -rf ~/.agent-vibes`). There is no registry or global system pollution.
