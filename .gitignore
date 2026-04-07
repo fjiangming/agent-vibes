@@ -48,7 +48,6 @@ tmp_repos/
 *.sqlite-journal
 
 # Extension build artifacts
-apps/vscode-extension/README.md
 apps/vscode-extension/*.vsix
 apps/vscode-extension/bridge/*
 !apps/vscode-extension/bridge/README.md

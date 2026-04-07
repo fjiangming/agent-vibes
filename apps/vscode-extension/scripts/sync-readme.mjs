@@ -89,9 +89,5 @@ function updateReadme(filePath) {
 
 updateReadme(readmeEnPath)
 updateReadme(readmeZhPath)
-fs.copyFileSync(readmeZhPath, extensionReadmePath)
 
 console.log(`Updated install commands to ${tag} in README.md and README_zh.md`)
-console.log(
-  `Synced README_zh.md → ${path.relative(repoRoot, extensionReadmePath)}`
-)
