@@ -56,6 +56,8 @@ async function bootstrap() {
   const logFilePath = path.join(logDir, logFileName)
   const latestLogPath = path.join(logDir, "protocol-bridge.log")
 
+  // Create file synchronously so copyFileSync won't fail with ENOENT
+  fs.writeFileSync(logFilePath, "")
   const logStream = fs.createWriteStream(logFilePath, { flags: "a" })
   try {
     if (fs.existsSync(latestLogPath)) {
