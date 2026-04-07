@@ -28,7 +28,7 @@ if (process.platform === "win32") {
     'Write-Host "SEA binary ready: dist\\$binaryName (${size}MB)"',
   ].join("; ")
 
-  execFileSync("pwsh", ["-NoProfile", "-Command", script], {
+  execFileSync("powershell", ["-NoProfile", "-Command", script], {
     stdio: "inherit",
     cwd: bridgeDir,
   })
