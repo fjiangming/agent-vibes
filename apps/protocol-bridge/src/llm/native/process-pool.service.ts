@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
+import { AsyncLocalStorage } from "async_hooks"
 import { ChildProcess, spawn } from "child_process"
 import * as crypto from "crypto"
 import * as fs from "fs"
@@ -234,9 +235,22 @@ function resolveAppBundlePaths(appPath: string): {
 export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ProcessPoolService.name)
   private readonly workers: WorkerHandle[] = []
-  private currentWorkerIndex = -1
+  private defaultWorkerIndex = -1
+  /** Per-model round-robin indices to prevent cross-model interference */
+  private readonly workerIndexByModel = new Map<string, number>()
   private requestCounter = 0
-  /** Tracks the worker that most recently executed a request (for precise cooldown targeting) */
+  /**
+   * Request-scoped worker context using AsyncLocalStorage.
+   * Each generate/generateStream call binds the selected worker to the current
+   * async context via enterWith(), so that subsequent setCooldownForLastWorker()
+   * calls in the same async chain (e.g. catch blocks in google.service.ts)
+   * target the correct worker — even under concurrent requests.
+   */
+  private readonly workerContext = new AsyncLocalStorage<WorkerHandle>()
+  /**
+   * @deprecated Legacy fallback — only used when workerContext has no store
+   * (i.e. calls outside of generate/generateStream async context).
+   */
   private lastUsedWorker: WorkerHandle | null = null
   /** Per-model sticky affinity: remember the last worker that succeeded for each model */
   private readonly preferredWorkerByModel = new Map<string, WorkerHandle>()
@@ -976,10 +990,27 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   // Public API
   // =========================================================================
 
-  private normalizeWorkerIndex(workerCount: number): number {
+  private normalizeWorkerIndex(workerCount: number, index: number): number {
     if (workerCount <= 0) return 0
-    const normalized = this.currentWorkerIndex % workerCount
+    const normalized = index % workerCount
     return normalized < 0 ? normalized + workerCount : normalized
+  }
+
+  /**
+   * Get or initialize the round-robin index for a given model.
+   * Each model maintains its own index to prevent cross-model interference.
+   * Falls back to defaultWorkerIndex for model-less calls.
+   */
+  private getWorkerIndex(model?: string): number {
+    if (!model) return this.defaultWorkerIndex
+    return this.workerIndexByModel.get(model) ?? this.defaultWorkerIndex
+  }
+
+  private setWorkerIndex(index: number, model?: string): void {
+    if (model) {
+      this.workerIndexByModel.set(model, index)
+    }
+    this.defaultWorkerIndex = index
   }
 
   /**
@@ -1012,10 +1043,10 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
         const modelAvailable = !modelState || modelState.cooldownUntil <= now
 
         if (globalAvailable && modelAvailable) {
-          // Update currentWorkerIndex to match so round-robin stays coherent
+          // Update worker index to match so round-robin stays coherent
           const preferredIdx = readyWorkers.indexOf(preferred)
           if (preferredIdx >= 0) {
-            this.currentWorkerIndex = preferredIdx
+            this.setWorkerIndex(preferredIdx, model)
           }
           return preferred
         }
@@ -1027,7 +1058,11 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
 
     // 2. Round-robin across all ready workers (offset from 0 to stay on
     //    the current index if it is still available, avoiding unnecessary skips)
-    const startIndex = this.normalizeWorkerIndex(readyWorkers.length)
+    const currentIndex = this.getWorkerIndex(model)
+    const startIndex = this.normalizeWorkerIndex(
+      readyWorkers.length,
+      currentIndex
+    )
     let fallbackIndex = startIndex
     let fallbackCooldown = Number.POSITIVE_INFINITY
 
@@ -1041,7 +1076,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
       const modelAvailable = !modelState || modelState.cooldownUntil <= now
 
       if (globalAvailable && modelAvailable) {
-        this.currentWorkerIndex = index
+        this.setWorkerIndex(index, model)
         return worker
       }
 
@@ -1056,7 +1091,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    this.currentWorkerIndex = fallbackIndex
+    this.setWorkerIndex(fallbackIndex, model)
     return readyWorkers[fallbackIndex]!
   }
 
@@ -1149,9 +1184,9 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
    * Switch to next worker (on error/quota exhaustion)
    */
   switchToNextWorker(): void {
-    this.currentWorkerIndex++
+    this.defaultWorkerIndex++
     this.logger.log(
-      `Switched to worker index ${this.currentWorkerIndex % Math.max(this.workers.length, 1)}`
+      `Switched to worker index ${this.defaultWorkerIndex % Math.max(this.workers.length, 1)}`
     )
   }
 
@@ -1166,6 +1201,28 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Resolve the worker for the current async context.
+   * Prefers the request-scoped workerContext (concurrency-safe),
+   * falls back to lastUsedWorker for legacy code paths.
+   */
+  private resolveContextWorker(): WorkerHandle | null {
+    return this.workerContext.getStore() ?? this.lastUsedWorker
+  }
+
+  /**
+   * Bind a worker to the current async context so that subsequent
+   * setCooldownForLastWorker() / markSuccessForModel() calls in the
+   * same async chain (e.g. catch blocks in google.service.ts) target
+   * the correct worker — even under concurrent requests.
+   */
+  private bindWorkerToContext(worker: WorkerHandle): void {
+    this.workerContext.enterWith(worker)
+    // Keep legacy fallback in sync for code paths that don't go through
+    // generate/generateStream (e.g. direct pool API calls)
+    this.lastUsedWorker = worker
+  }
+
+  /**
    * @deprecated Use setCooldownForLastWorker() for accurate targeting.
    * Legacy: marks the last-used worker as rate-limited.
    */
@@ -1174,17 +1231,17 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Mark the last-used worker (the one that actually executed the request)
-   * as globally rate-limited for `delayMs` milliseconds.
+   * Mark the worker bound to the current async context as globally
+   * rate-limited for `delayMs` milliseconds.
    *
-   * Unlike the old setCooldown which relied on a drifting currentWorkerIndex,
-   * this precisely targets the worker that reported the error.
+   * Uses AsyncLocalStorage to resolve the correct worker even when
+   * multiple requests are in-flight concurrently.
    */
   setCooldownForLastWorker(
     delayMs: number,
     reason: string = "rate-limited"
   ): void {
-    const worker = this.lastUsedWorker
+    const worker = this.resolveContextWorker()
     if (!worker) return
     const now = Date.now()
     worker.cooldownUntil = now + delayMs
@@ -1198,7 +1255,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Mark the last-used worker as rate-limited for a specific model.
+   * Mark the context worker as rate-limited for a specific model.
    * Inspired by CLIProxyAPI's MarkResult per-model state tracking.
    *
    * The worker may still be available for other models.
@@ -1209,7 +1266,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
     delayMs: number,
     quotaExhausted: boolean = false
   ): void {
-    const worker = this.lastUsedWorker
+    const worker = this.resolveContextWorker()
     if (!worker || !model) return
     const now = Date.now()
     worker.modelStates.set(model, {
@@ -1228,21 +1285,21 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Clear per-model cooldown for the last-used worker (on success).
+   * Clear per-model cooldown for the context worker (on success).
    */
   clearModelCooldownForLastWorker(model: string): void {
-    const worker = this.lastUsedWorker
+    const worker = this.resolveContextWorker()
     if (!worker || !model) return
     worker.modelStates.delete(model)
   }
 
   /**
-   * Mark the last-used worker as the preferred (sticky) worker for a model.
+   * Mark the context worker as the preferred (sticky) worker for a model.
    * Called on successful request completion so subsequent requests reuse the
    * same worker instead of rotating through all accounts unnecessarily.
    */
   markSuccessForModel(model: string): void {
-    const worker = this.lastUsedWorker
+    const worker = this.resolveContextWorker()
     if (!worker || !model) return
     this.preferredWorkerByModel.set(model, worker)
     // Also clear any lingering model cooldown (recovery)
@@ -1346,7 +1403,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   ): Promise<unknown> {
     const requestStartedAt = Date.now()
     const worker = this.getNextWorker(model)
-    this.lastUsedWorker = worker
+    this.bindWorkerToContext(worker)
     worker.requestCount++
     await this.preparePayloadForWorker(worker, payload)
     const outboundPayload = this.createOutboundWorkerPayload(payload)
@@ -1372,7 +1429,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const requestStartedAt = Date.now()
     const worker = this.getNextWorker(model)
-    this.lastUsedWorker = worker
+    this.bindWorkerToContext(worker)
     worker.requestCount++
     await this.preparePayloadForWorker(worker, payload)
     const outboundPayload = this.createOutboundWorkerPayload(payload)
@@ -1703,8 +1760,8 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
         drained += 1
       }
 
-      this.currentWorkerIndex = Math.min(
-        this.currentWorkerIndex,
+      this.defaultWorkerIndex = Math.min(
+        this.defaultWorkerIndex,
         Math.max(this.workers.length - 1, 0)
       )
 
@@ -1737,17 +1794,21 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
       this.shouldWorkerAcceptNewRequests(w)
     )
     if (readyWorkers.length === 0) return null
-    const idx = this.normalizeWorkerIndex(readyWorkers.length)
+    const idx = this.normalizeWorkerIndex(
+      readyWorkers.length,
+      this.defaultWorkerIndex
+    )
     const worker = readyWorkers[idx]
     return worker?.account.email ?? null
   }
 
   /**
    * Get the email of the worker that last executed a request.
+   * Uses AsyncLocalStorage context first, falls back to legacy lastUsedWorker.
    * Useful for logging which worker encountered an error.
    */
   getLastWorkerEmail(): string | null {
-    return this.lastUsedWorker?.account.email ?? null
+    return this.resolveContextWorker()?.account.email ?? null
   }
 
   private extractGoogleUsageMetadata(
