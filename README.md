@@ -184,7 +184,21 @@ For the Cursor client side, a free account is enough. No paid Cursor plan is req
 
 **Option A: Extension (Recommended)**
 
-One-click download + install from [GitHub Releases](https://github.com/funny-vibes/agent-vibes/releases):
+> **💡 Important Note on Secondary Development and Custom Features:**
+>
+> If you have modified any core code locally (such as `apps/protocol-bridge`), **please DO NOT** download the pre-built VSCode extension (`.vsix`) from the official Releases page. The official `.vsix` bundles the unmodified upstream backend files; installing it will override all your local custom logic and fixes.
+> 
+> **To build a customized extension including your changes, follow these steps to package it from source:**
+> 1. Ensure Node.js and `npm` are installed.
+> 2. Run `npm install` in the project root.
+> 3. Enter the extension directory: `cd apps/vscode-extension`
+> 4. Run the build and package command: `npm run package`
+> 5. Once finished, a `.vsix` file (e.g., `agent-vibes-0.1.0.vsix`) containing your latest changes will be generated in the same directory.
+> 6. Install it into Cursor by running `cursor --install-extension <your_vsix_file>.vsix --force`, or simply use `npm run pack` which automatically packages, installs, and restarts the proxy.
+>
+> *Tip: For rapid packaging during extension development without full backend rebuilds, you can use `npm run package:fast` or `npm run pack:fast`.*
+
+If you haven't made custom modifications, you can use one-click download + install from [GitHub Releases](https://github.com/funny-vibes/agent-vibes/releases):
 
 #### macOS Apple Silicon
 
