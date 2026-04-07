@@ -879,6 +879,13 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
     if (!request) return
 
     request.sessionId = handle.cloudCodeSessionId
+
+    const requestType =
+      typeof payload.requestType === "string" ? payload.requestType.trim() : ""
+    if (requestType !== "agent") {
+      return
+    }
+
     const conversationSession = resolveWorkerConversationSession(
       handle,
       payload

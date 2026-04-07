@@ -385,7 +385,7 @@ export class UsageStatsService implements OnModuleInit {
          FROM usage_events
          ORDER BY recorded_at ASC, id ASC`
       )
-      .all() as PersistedUsageEventRow[]
+      .all() as unknown as PersistedUsageEventRow[]
 
     if (rows.length === 0) {
       return

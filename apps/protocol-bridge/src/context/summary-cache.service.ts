@@ -79,7 +79,7 @@ export class SummaryCacheService implements OnModuleInit, OnModuleDestroy {
           `SELECT hash, summary_text, token_count, message_count, created_at
            FROM summaries WHERE hash = ?`
         )
-        .get(hash) as CachedSummary | undefined
+        .get(hash) as unknown as CachedSummary | undefined
 
       if (row) {
         // Update last_used_at
@@ -154,7 +154,7 @@ export class SummaryCacheService implements OnModuleInit, OnModuleDestroy {
         .prepare(
           `SELECT COUNT(*) as count, COALESCE(SUM(token_count), 0) as tokens FROM summaries`
         )
-        .get() as { count: number; tokens: number }
+        .get() as unknown as { count: number; tokens: number }
 
       return { totalEntries: row.count, totalTokens: row.tokens }
     } catch {

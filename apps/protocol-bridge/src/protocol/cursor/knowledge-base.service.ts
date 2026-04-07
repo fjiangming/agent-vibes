@@ -56,7 +56,7 @@ export class KnowledgeBaseService implements OnModuleDestroy {
     try {
       const row = this.persistence
         .prepare("SELECT * FROM knowledge_base WHERE id = ?")
-        .get(id) as KnowledgeBaseRow | undefined
+        .get(id) as unknown as KnowledgeBaseRow | undefined
       if (!row) return null
       return this.toKnowledgeBaseItem(row)
     } catch (error) {
@@ -79,7 +79,7 @@ export class KnowledgeBaseService implements OnModuleDestroy {
       // may re-sync items from the official server before the proxy takes over.
       const existing = this.persistence
         .prepare("SELECT * FROM knowledge_base WHERE knowledge = ? LIMIT 1")
-        .get(knowledge) as KnowledgeBaseRow | undefined
+        .get(knowledge) as unknown as KnowledgeBaseRow | undefined
       if (existing) {
         this.logger.debug(
           `Knowledge base item already exists (id=${existing.id}), skipping duplicate add`

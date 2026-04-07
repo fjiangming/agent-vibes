@@ -63,7 +63,7 @@ export class CursorAuthService {
         .prepare(
           `SELECT key, value FROM ItemTable WHERE key LIKE 'cursorAuth/%'`
         )
-        .all() as Array<{ key: string; value: string }>
+        .all() as unknown as Array<{ key: string; value: string }>
 
       for (const row of rows) {
         switch (row.key) {

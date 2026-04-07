@@ -44,7 +44,10 @@ export class BackendAccountStateStore {
            WHERE backend = ?
            ORDER BY updated_at ASC`
         )
-        .all(backend) as Array<{ state_key: string; state_json: string }>
+        .all(backend) as unknown as Array<{
+        state_key: string
+        state_json: string
+      }>
 
       for (const row of rows) {
         try {

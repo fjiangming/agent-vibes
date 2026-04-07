@@ -321,6 +321,14 @@ export class GoogleService {
   }
 
   private getTrajectoryIdFromPayload(payload: Record<string, unknown>): string {
+    const sourceConversationKey =
+      typeof payload.__workerConversationKey === "string"
+        ? payload.__workerConversationKey.trim()
+        : ""
+    if (sourceConversationKey) {
+      return sourceConversationKey
+    }
+
     const requestId =
       typeof payload.requestId === "string" ? payload.requestId.trim() : ""
     const match = /^agent\/\d+\/([^/]+)\/\d+$/.exec(requestId)

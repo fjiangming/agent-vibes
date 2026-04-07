@@ -127,7 +127,7 @@ export class PersistenceService implements OnModuleInit, OnModuleDestroy {
     // Get already-applied migrations
     const applied = this.database
       .prepare("SELECT name FROM _migrations ORDER BY id")
-      .all() as Array<{ name: string }>
+      .all() as unknown as Array<{ name: string }>
     const appliedSet = new Set(applied.map((r) => r.name))
 
     // Apply pending migrations in a transaction

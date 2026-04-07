@@ -41,7 +41,9 @@ export class AntigravityIdeSyncService {
     try {
       const authRow = db
         .prepare("SELECT value FROM ItemTable WHERE key = ?")
-        .get("antigravityAuthStatus") as { value?: string } | undefined
+        .get("antigravityAuthStatus") as unknown as
+        | { value?: string }
+        | undefined
       authRaw =
         authRow && typeof authRow.value === "string" ? authRow.value.trim() : ""
 
