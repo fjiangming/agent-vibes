@@ -21,10 +21,10 @@ if (!version) {
 }
 
 const installBlocks = {
-  darwinArm64: `#### macOS Apple Silicon\n\n\`\`\`bash\ncurl -L -o agent-vibes-darwin-arm64-${version}.vsix ${releaseBase}/agent-vibes-darwin-arm64-${version}.vsix\ncursor --install-extension agent-vibes-darwin-arm64-${version}.vsix --force\n\`\`\``,
-  darwinX64: `#### macOS Intel\n\n\`\`\`bash\ncurl -L -o agent-vibes-darwin-x64-${version}.vsix ${releaseBase}/agent-vibes-darwin-x64-${version}.vsix\ncursor --install-extension agent-vibes-darwin-x64-${version}.vsix --force\n\`\`\``,
-  linuxX64: `#### Linux x64\n\n\`\`\`bash\ncurl -L -o agent-vibes-linux-x64-${version}.vsix ${releaseBase}/agent-vibes-linux-x64-${version}.vsix\ncursor --install-extension agent-vibes-linux-x64-${version}.vsix --force\n\`\`\``,
-  win32X64: `#### Windows x64\n\n\`\`\`powershell\nInvoke-WebRequest -Uri "${releaseBase}/agent-vibes-win32-x64-${version}.vsix" -OutFile "agent-vibes-win32-x64-${version}.vsix"\ncursor --install-extension agent-vibes-win32-x64-${version}.vsix --force\n\`\`\``,
+  darwinArm64: `#### macOS Apple Silicon\n\n\`\`\`bash\n# Download\ncurl -L -o agent-vibes-darwin-arm64-${version}.vsix ${releaseBase}/agent-vibes-darwin-arm64-${version}.vsix\n\n# Install\ncursor --install-extension agent-vibes-darwin-arm64-${version}.vsix --force\n\`\`\``,
+  darwinX64: `#### macOS Intel\n\n\`\`\`bash\n# Download\ncurl -L -o agent-vibes-darwin-x64-${version}.vsix ${releaseBase}/agent-vibes-darwin-x64-${version}.vsix\n\n# Install\ncursor --install-extension agent-vibes-darwin-x64-${version}.vsix --force\n\`\`\``,
+  linuxX64: `#### Linux x64\n\n\`\`\`bash\n# Download\ncurl -L -o agent-vibes-linux-x64-${version}.vsix ${releaseBase}/agent-vibes-linux-x64-${version}.vsix\n\n# Install\ncursor --install-extension agent-vibes-linux-x64-${version}.vsix --force\n\`\`\``,
+  win32X64: `#### Windows x64\n\n\`\`\`powershell\n# Download\nInvoke-WebRequest -Uri "${releaseBase}/agent-vibes-win32-x64-${version}.vsix" -OutFile "agent-vibes-win32-x64-${version}.vsix"\n\n# Install\ncursor --install-extension agent-vibes-win32-x64-${version}.vsix --force\n\`\`\``,
 }
 
 function escapeRegex(text) {

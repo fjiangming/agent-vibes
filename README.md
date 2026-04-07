@@ -156,28 +156,40 @@ One-click download + install from [GitHub Releases](https://github.com/funny-vib
 #### macOS Apple Silicon
 
 ```bash
+# Download
 curl -L -o agent-vibes-darwin-arm64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-darwin-arm64-0.1.0.vsix
+
+# Install
 cursor --install-extension agent-vibes-darwin-arm64-0.1.0.vsix --force
 ```
 
 #### macOS Intel
 
 ```bash
+# Download
 curl -L -o agent-vibes-darwin-x64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-darwin-x64-0.1.0.vsix
+
+# Install
 cursor --install-extension agent-vibes-darwin-x64-0.1.0.vsix --force
 ```
 
 #### Linux x64
 
 ```bash
+# Download
 curl -L -o agent-vibes-linux-x64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-linux-x64-0.1.0.vsix
+
+# Install
 cursor --install-extension agent-vibes-linux-x64-0.1.0.vsix --force
 ```
 
 #### Windows x64
 
 ```powershell
+# Download
 Invoke-WebRequest -Uri "https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-win32-x64-0.1.0.vsix" -OutFile "agent-vibes-win32-x64-0.1.0.vsix"
+
+# Install
 cursor --install-extension agent-vibes-win32-x64-0.1.0.vsix --force
 ```
 
