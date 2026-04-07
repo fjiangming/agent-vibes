@@ -35,6 +35,10 @@ if (Test-Path $TARGET_DIR) {
     Write-Host "📦 Updating existing repository..." -ForegroundColor Yellow
     Set-Location $TARGET_DIR
     git fetch origin $BRANCH
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "❌ Failed to fetch from origin. Please check your network connection." -ForegroundColor Red
+        exit 1
+    }
     git reset --hard origin/$BRANCH
 } else {
     Write-Host "📦 Cloning repository..." -ForegroundColor Yellow
