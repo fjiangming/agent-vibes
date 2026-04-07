@@ -102,6 +102,8 @@ curl -sSL https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-sta
 
 **源码安装（全平台）：**
 
+> **提示：** 如果你只需要 Cursor IDE 支持，可以跳过源码安装，直接使用[扩展安装](#配合-cursor-ide-使用)，无需编译。
+>
 > **说明：** 当前主要在 macOS 上开发与测试。
 > Linux 和 Windows 虽然都已实现支持，但尚未完整验证，脚本在这些平台上仍可能存在边界问题。欢迎 PR。
 
@@ -165,6 +167,54 @@ claude
 
 Cursor 客户端侧使用 free 账号即可，不需要开通 Cursor 付费订阅。
 
+**方式 A：扩展安装（推荐）**
+
+从 [GitHub Releases](https://github.com/funny-vibes/agent-vibes/releases) 一键下载并安装：
+
+#### macOS Apple Silicon
+
+```bash
+# Download
+curl -L -o agent-vibes-darwin-arm64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-darwin-arm64-0.1.0.vsix
+
+# Install
+cursor --install-extension agent-vibes-darwin-arm64-0.1.0.vsix --force
+```
+
+#### macOS Intel
+
+```bash
+# Download
+curl -L -o agent-vibes-darwin-x64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-darwin-x64-0.1.0.vsix
+
+# Install
+cursor --install-extension agent-vibes-darwin-x64-0.1.0.vsix --force
+```
+
+#### Linux x64
+
+```bash
+# Download
+curl -L -o agent-vibes-linux-x64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-linux-x64-0.1.0.vsix
+
+# Install
+cursor --install-extension agent-vibes-linux-x64-0.1.0.vsix --force
+```
+
+#### Windows x64
+
+```powershell
+# Download
+Invoke-WebRequest -Uri "https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-win32-x64-0.1.0.vsix" -OutFile "agent-vibes-win32-x64-0.1.0.vsix"
+
+# Install
+cursor --install-extension agent-vibes-win32-x64-0.1.0.vsix --force
+```
+
+安装后重启 Cursor，扩展会自动启动代理服务器并引导你完成首次配置（SSL 证书、账号同步、网络转发等均可在命令面板中操作）。
+
+**方式 B：CLI**
+
 Cursor 需要 HTTPS 拦截，以下为一次性设置：
 
 ```bash
@@ -210,7 +260,7 @@ agent-vibes sync --tools
 
 行为：
 
-- 凭据会同步到 `apps/protocol-bridge/data/antigravity-accounts.json`。
+- 凭据会同步到 `~/.agent-vibes/data/antigravity-accounts.json`。
 - 支持多账号轮转。
 - **Claude 模型路由：** 当 Claude Code CLI 通过 Google 后端路由时，
   只有 **Opus** 模型走 Claude-through-Google（Cloud Code）路径。
@@ -244,7 +294,7 @@ codex --login
 agent-vibes sync --codex
 ```
 
-- OpenAI 兼容配置文件：`apps/protocol-bridge/data/openai-compat-accounts.json`
+- OpenAI 兼容配置文件：`~/.agent-vibes/data/openai-compat-accounts.json`
 
 ```json
 {
@@ -257,7 +307,9 @@ agent-vibes sync --codex
     {
       "label": "provider-2",
       "baseUrl": "https://b.example.com/v1",
-      "apiKey": "sk-yyy"
+      "apiKey": "sk-yyy",
+      "proxyUrl": "http://127.0.0.1:7897",
+      "preferResponsesApi": true
     }
   ]
 }
@@ -268,6 +320,8 @@ agent-vibes sync --codex
 - Codex 和 OpenAI 兼容后端都支持多账号轮转。
 - 同时配置 OpenAI 兼容后端和 Codex 后端时，GPT 请求优先走 OpenAI 兼容后端。
 - 额度耗尽时自动切换到下一个可用账号。
+- `proxyUrl` 可为该账号指定 HTTP/SOCKS 代理地址。
+- `preferResponsesApi=true` 时使用 OpenAI Responses API（`/v1/responses`）代替 Chat Completions。
 
 ### 3. Claude API
 
@@ -275,9 +329,9 @@ agent-vibes sync --codex
 
 配置方式：
 
-- `agent-vibes sync --claude` 会读取 `~/.claude/settings.json`，并在 `apps/protocol-bridge/data/claude-api-accounts.json` 中写入或更新一个受管理的 `claude-code-sync` 条目。
+- `agent-vibes sync --claude` 会读取 `~/.claude/settings.json`，并在 `~/.agent-vibes/data/claude-api-accounts.json` 中写入或更新一个受管理的 `claude-code-sync` 条目。
   这个受管理条目会以当前源设置为准；如果源设置里已经没有显式模型 ID，旧的受管 `models` 也会被清掉，以便动态发现生效。
-- 或手动编辑 `apps/protocol-bridge/data/claude-api-accounts.json`：
+- 或手动编辑 `~/.agent-vibes/data/claude-api-accounts.json`：
 
 ```json
 {
