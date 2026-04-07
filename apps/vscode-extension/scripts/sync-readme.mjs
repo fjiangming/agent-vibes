@@ -20,11 +20,49 @@ if (!version) {
   throw new Error(`Version not found in ${extensionPkgPath}`)
 }
 
-const installLines = {
-  darwinArm64: `curl -L -o agent-vibes-darwin-arm64-${version}.vsix ${releaseBase}/agent-vibes-darwin-arm64-${version}.vsix\ncursor --install-extension agent-vibes-darwin-arm64-${version}.vsix --force`,
-  darwinX64: `curl -L -o agent-vibes-darwin-x64-${version}.vsix ${releaseBase}/agent-vibes-darwin-x64-${version}.vsix\ncursor --install-extension agent-vibes-darwin-x64-${version}.vsix --force`,
-  linuxX64: `curl -L -o agent-vibes-linux-x64-${version}.vsix ${releaseBase}/agent-vibes-linux-x64-${version}.vsix\ncursor --install-extension agent-vibes-linux-x64-${version}.vsix --force`,
-  win32X64: `Invoke-WebRequest -Uri "${releaseBase}/agent-vibes-win32-x64-${version}.vsix" -OutFile "agent-vibes-win32-x64-${version}.vsix"\ncursor --install-extension agent-vibes-win32-x64-${version}.vsix --force`,
+const installBlocks = {
+  darwinArm64: `#### macOS Apple Silicon\n\n\`\`\`bash\ncurl -L -o agent-vibes-darwin-arm64-${version}.vsix ${releaseBase}/agent-vibes-darwin-arm64-${version}.vsix\ncursor --install-extension agent-vibes-darwin-arm64-${version}.vsix --force\n\`\`\``,
+  darwinX64: `#### macOS Intel\n\n\`\`\`bash\ncurl -L -o agent-vibes-darwin-x64-${version}.vsix ${releaseBase}/agent-vibes-darwin-x64-${version}.vsix\ncursor --install-extension agent-vibes-darwin-x64-${version}.vsix --force\n\`\`\``,
+  linuxX64: `#### Linux x64\n\n\`\`\`bash\ncurl -L -o agent-vibes-linux-x64-${version}.vsix ${releaseBase}/agent-vibes-linux-x64-${version}.vsix\ncursor --install-extension agent-vibes-linux-x64-${version}.vsix --force\n\`\`\``,
+  win32X64: `#### Windows x64\n\n\`\`\`powershell\nInvoke-WebRequest -Uri "${releaseBase}/agent-vibes-win32-x64-${version}.vsix" -OutFile "agent-vibes-win32-x64-${version}.vsix"\ncursor --install-extension agent-vibes-win32-x64-${version}.vsix --force\n\`\`\``,
+}
+
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function replacePlatformBlock(content, platform, block) {
+  const pattern = new RegExp(
+    "#### " +
+      escapeRegex(platform) +
+      "\\n\\n```(?:bash|powershell)\\n[\\s\\S]*?\\n```",
+    "g"
+  )
+  return content.replace(pattern, block)
+}
+
+function collapseDuplicateCommands(content, version) {
+  const unixTargets = [
+    `agent-vibes-darwin-arm64-${version}.vsix`,
+    `agent-vibes-darwin-x64-${version}.vsix`,
+    `agent-vibes-linux-x64-${version}.vsix`,
+  ]
+
+  for (const filename of unixTargets) {
+    const pair = [
+      `curl -L -o ${filename} ${releaseBase}/${filename}`,
+      `cursor --install-extension ${filename} --force`,
+    ].join("\\n")
+    const pairPattern = new RegExp(`(?:${escapeRegex(pair)}\\n?){2,}`, "g")
+    content = content.replace(pairPattern, `${pair}\\n`)
+  }
+
+  const winPair = [
+    `Invoke-WebRequest -Uri \"${releaseBase}/agent-vibes-win32-x64-${version}.vsix\" -OutFile \"agent-vibes-win32-x64-${version}.vsix\"`,
+    `cursor --install-extension agent-vibes-win32-x64-${version}.vsix --force`,
+  ].join("\\n")
+  const winPairPattern = new RegExp(`(?:${escapeRegex(winPair)}\\n?){2,}`, "g")
+  return content.replace(winPairPattern, `${winPair}\\n`)
 }
 
 function updateReadme(filePath) {
@@ -33,22 +71,19 @@ function updateReadme(filePath) {
   }
 
   let content = fs.readFileSync(filePath, "utf8")
-  content = content.replace(
-    /^[^\n`]*agent-vibes-darwin-arm64-[^\s`]+\.vsix[^\n`]*/gm,
-    installLines.darwinArm64
+  content = collapseDuplicateCommands(content, version)
+  content = replacePlatformBlock(
+    content,
+    "macOS Apple Silicon",
+    installBlocks.darwinArm64
   )
-  content = content.replace(
-    /^[^\n`]*agent-vibes-darwin-x64-[^\s`]+\.vsix[^\n`]*/gm,
-    installLines.darwinX64
+  content = replacePlatformBlock(
+    content,
+    "macOS Intel",
+    installBlocks.darwinX64
   )
-  content = content.replace(
-    /^[^\n`]*agent-vibes-linux-x64-[^\s`]+\.vsix[^\n`]*/gm,
-    installLines.linuxX64
-  )
-  content = content.replace(
-    /^[^\n`]*agent-vibes-win32-x64-[^\s`]+\.vsix[^\n`]*/gm,
-    installLines.win32X64
-  )
+  content = replacePlatformBlock(content, "Linux x64", installBlocks.linuxX64)
+  content = replacePlatformBlock(content, "Windows x64", installBlocks.win32X64)
   fs.writeFileSync(filePath, content)
 }
 
@@ -56,9 +91,7 @@ updateReadme(readmeEnPath)
 updateReadme(readmeZhPath)
 fs.copyFileSync(readmeEnPath, extensionReadmePath)
 
-console.log(
-  `Updated install commands to v${version} in README.md and README_zh.md`
-)
+console.log(`Updated install commands to ${tag} in README.md and README_zh.md`)
 console.log(
   `Synced README.md → ${path.relative(repoRoot, extensionReadmePath)}`
 )
