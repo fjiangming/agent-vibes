@@ -151,20 +151,20 @@ For the Cursor client side, a free account is enough. No paid Cursor plan is req
 
 **Option A: Extension (Recommended)**
 
-Download the `.vsix` for your platform from [GitHub Releases](https://github.com/funny-vibes/agent-vibes/releases) and install:
+One-click download + install from [GitHub Releases](https://github.com/funny-vibes/agent-vibes/releases):
 
 ```bash
 # macOS Apple Silicon
-cursor --install-extension agent-vibes-darwin-arm64-0.1.0.vsix --force
+curl -L -o agent-vibes-darwin-arm64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-darwin-arm64-0.1.0.vsix && cursor --install-extension agent-vibes-darwin-arm64-0.1.0.vsix --force
 
 # macOS Intel
-cursor --install-extension agent-vibes-darwin-x64-0.1.0.vsix --force
+curl -L -o agent-vibes-darwin-x64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-darwin-x64-0.1.0.vsix && cursor --install-extension agent-vibes-darwin-x64-0.1.0.vsix --force
 
 # Linux x64
-cursor --install-extension agent-vibes-linux-x64-0.1.0.vsix --force
+curl -L -o agent-vibes-linux-x64-0.1.0.vsix https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-linux-x64-0.1.0.vsix && cursor --install-extension agent-vibes-linux-x64-0.1.0.vsix --force
 
 # Windows x64
-cursor --install-extension agent-vibes-win32-x64-0.1.0.vsix --force
+powershell -Command "Invoke-WebRequest -Uri 'https://github.com/funny-vibes/agent-vibes/releases/download/v0.1.0/agent-vibes-win32-x64-0.1.0.vsix' -OutFile 'agent-vibes-win32-x64-0.1.0.vsix'; cursor --install-extension agent-vibes-win32-x64-0.1.0.vsix --force"
 ```
 
 Restart Cursor after installation.

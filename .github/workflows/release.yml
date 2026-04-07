@@ -267,11 +267,20 @@ jobs:
 
             ### Cursor Extension (.vsix)
 
-            Download the `.vsix` that matches your platform, then install it in Cursor.
+            One-click download + install:
 
-            | Platform | Asset | Install command |
-            |----------|-------|-----------------|
-            | macOS Apple Silicon | `agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix` | `cursor --install-extension agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix --force` |
-            | macOS Intel | `agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix` | `cursor --install-extension agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix --force` |
-            | Linux x64 | `agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix` | `cursor --install-extension agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix --force` |
-            | Windows x64 | `agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix` | `cursor --install-extension agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix --force` |
+            ```bash
+            # macOS Apple Silicon
+            curl -L -o agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix && cursor --install-extension agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix --force
+
+            # macOS Intel
+            curl -L -o agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix && cursor --install-extension agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix --force
+
+            # Linux x64
+            curl -L -o agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix && cursor --install-extension agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix --force
+            ```
+
+            ```powershell
+            # Windows x64
+            Invoke-WebRequest -Uri "https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix" -OutFile "agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix"; cursor --install-extension agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix --force
+            ```

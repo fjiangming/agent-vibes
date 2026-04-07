@@ -13,16 +13,18 @@ const readmeZhPath = path.join(repoRoot, "README_zh.md")
 const extensionReadmePath = path.join(extensionRoot, "README.md")
 
 const version = JSON.parse(fs.readFileSync(extensionPkgPath, "utf8")).version
+const tag = `v${version}`
+const releaseBase = `https://github.com/funny-vibes/agent-vibes/releases/download/${tag}`
 
 if (!version) {
   throw new Error(`Version not found in ${extensionPkgPath}`)
 }
 
 const installLines = {
-  darwinArm64: `cursor --install-extension agent-vibes-darwin-arm64-${version}.vsix --force`,
-  darwinX64: `cursor --install-extension agent-vibes-darwin-x64-${version}.vsix --force`,
-  linuxX64: `cursor --install-extension agent-vibes-linux-x64-${version}.vsix --force`,
-  win32X64: `cursor --install-extension agent-vibes-win32-x64-${version}.vsix --force`,
+  darwinArm64: `curl -L -o agent-vibes-darwin-arm64-${version}.vsix ${releaseBase}/agent-vibes-darwin-arm64-${version}.vsix && cursor --install-extension agent-vibes-darwin-arm64-${version}.vsix --force`,
+  darwinX64: `curl -L -o agent-vibes-darwin-x64-${version}.vsix ${releaseBase}/agent-vibes-darwin-x64-${version}.vsix && cursor --install-extension agent-vibes-darwin-x64-${version}.vsix --force`,
+  linuxX64: `curl -L -o agent-vibes-linux-x64-${version}.vsix ${releaseBase}/agent-vibes-linux-x64-${version}.vsix && cursor --install-extension agent-vibes-linux-x64-${version}.vsix --force`,
+  win32X64: `powershell -Command "Invoke-WebRequest -Uri '${releaseBase}/agent-vibes-win32-x64-${version}.vsix' -OutFile 'agent-vibes-win32-x64-${version}.vsix'; cursor --install-extension agent-vibes-win32-x64-${version}.vsix --force"`,
 }
 
 function updateReadme(filePath) {
@@ -32,19 +34,19 @@ function updateReadme(filePath) {
 
   let content = fs.readFileSync(filePath, "utf8")
   content = content.replace(
-    /cursor --install-extension agent-vibes-darwin-arm64-[^\s`]+\.vsix --force/g,
+    /^[^\n`]*agent-vibes-darwin-arm64-[^\s`]+\.vsix[^\n`]*/gm,
     installLines.darwinArm64
   )
   content = content.replace(
-    /cursor --install-extension agent-vibes-darwin-x64-[^\s`]+\.vsix --force/g,
+    /^[^\n`]*agent-vibes-darwin-x64-[^\s`]+\.vsix[^\n`]*/gm,
     installLines.darwinX64
   )
   content = content.replace(
-    /cursor --install-extension agent-vibes-linux-x64-[^\s`]+\.vsix --force/g,
+    /^[^\n`]*agent-vibes-linux-x64-[^\s`]+\.vsix[^\n`]*/gm,
     installLines.linuxX64
   )
   content = content.replace(
-    /cursor --install-extension agent-vibes-win32-x64-[^\s`]+\.vsix --force/g,
+    /^[^\n`]*agent-vibes-win32-x64-[^\s`]+\.vsix[^\n`]*/gm,
     installLines.win32X64
   )
   fs.writeFileSync(filePath, content)
