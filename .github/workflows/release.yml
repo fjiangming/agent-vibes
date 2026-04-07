@@ -269,18 +269,26 @@ jobs:
 
             One-click download + install:
 
+            #### macOS Apple Silicon
+
             ```bash
-            # macOS Apple Silicon
             curl -L -o agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix && cursor --install-extension agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix --force
+            ```
 
-            # macOS Intel
+            #### macOS Intel
+
+            ```bash
             curl -L -o agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix && cursor --install-extension agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix --force
+            ```
 
-            # Linux x64
+            #### Linux x64
+
+            ```bash
             curl -L -o agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix && cursor --install-extension agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix --force
             ```
 
+            #### Windows x64
+
             ```powershell
-            # Windows x64
             Invoke-WebRequest -Uri "https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix" -OutFile "agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix"; cursor --install-extension agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix --force
             ```
