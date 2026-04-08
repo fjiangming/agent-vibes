@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common"
 import * as fs from "fs"
 import * as path from "path"
-import { getAgentVibesHome, ensureAgentVibesDirs } from "../../persistence"
+import { getCursorProxyHome, ensureCursorProxyDirs } from "../../persistence"
 
 /**
  * ToolThoughtSignatureStore - Cross-turn signature cache
@@ -43,8 +43,8 @@ export class ToolThoughtSignatureService {
   private loadedFromDisk = false
 
   constructor() {
-    ensureAgentVibesDirs()
-    const storageDir = getAgentVibesHome()
+    ensureCursorProxyDirs()
+    const storageDir = getCursorProxyHome()
     this.cacheFilePath = path.join(storageDir, "tool-thought-signatures.json")
     this.loadFromDisk()
   }

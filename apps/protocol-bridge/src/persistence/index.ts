@@ -7,4 +7,4 @@ export {
   getCursorProxyCertsDir,
   getCursorProxyAccountsDir,
   ensureCursorProxyDirs,
-} from "./agent-vibes-paths"
+} from "./cursor-proxy-paths"

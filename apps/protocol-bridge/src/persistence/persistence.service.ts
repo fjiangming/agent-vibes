@@ -11,7 +11,7 @@ import {
   getCursorProxyPgDataDir,
   getCursorProxyAccountsDir,
   ensureCursorProxyDirs,
-} from "./agent-vibes-paths"
+} from "./cursor-proxy-paths"
 import { resolveProtocolBridgePath } from "../shared/protocol-bridge-paths"
 
 const DB_FILENAME = "agent-vibes.db"
