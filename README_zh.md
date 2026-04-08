@@ -238,6 +238,13 @@ cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
 
 **方式 B：CLI**
 
+**干净卸载插件：**
+
+1. 在 Cursor 左侧的扩展面板中搜索 **Cursor Proxy**，点击 **卸载 (Uninstall)**。
+2. 删除系统自动生成的后端数据目录（Windows 用户请在终端执行：`Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux 执行 `rm -rf ~/.cursor-proxy`）。程序纯绿色执行，没有任何全局残留或注册表垃圾。
+
+
+
 Cursor 需�?HTTPS 拦截，以下为一次性设置：
 
 ```bash

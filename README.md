@@ -255,6 +255,13 @@ The extension auto-starts the proxy server and guides you through first-run setu
 
 **Option B: CLI**
 
+**Uninstall Extension Cleanly:**
+
+1. Go to the Extensions panel in Cursor, search for **Cursor Proxy**, and click **Uninstall**.
+2. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). There are no global registry keys left behind.
+
+
+
 Cursor requires HTTPS interception �?one-time setup:
 
 ```bash
