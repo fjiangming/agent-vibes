@@ -262,50 +262,5 @@ jobs:
           files: |
             extensions/*.vsix
           generate_release_notes: true
-          body: |
-            ## Cursor Proxy
-
-            ### Cursor Extension (.vsix)
-
-            One-click download + install:
-
-            #### macOS Apple Silicon
-
-            ```bash
-            # Download
-            curl -L -o cursor-proxy-darwin-arm64-${{ steps.version.outputs.version }}.vsix https://github.com/fjiangming/cursor-proxy/releases/download/${{ github.ref_name }}/cursor-proxy-darwin-arm64-${{ steps.version.outputs.version }}.vsix
-
-            # Install
-            cursor --install-extension cursor-proxy-darwin-arm64-${{ steps.version.outputs.version }}.vsix --force
-            ```
-
-            #### macOS Intel
-
-            ```bash
-            # Download
-            curl -L -o cursor-proxy-darwin-x64-${{ steps.version.outputs.version }}.vsix https://github.com/fjiangming/cursor-proxy/releases/download/${{ github.ref_name }}/cursor-proxy-darwin-x64-${{ steps.version.outputs.version }}.vsix
-
-            # Install
-            cursor --install-extension cursor-proxy-darwin-x64-${{ steps.version.outputs.version }}.vsix --force
-            ```
-
-            #### Linux x64
-
-            ```bash
-            # Download
-            curl -L -o cursor-proxy-linux-x64-${{ steps.version.outputs.version }}.vsix https://github.com/fjiangming/cursor-proxy/releases/download/${{ github.ref_name }}/cursor-proxy-linux-x64-${{ steps.version.outputs.version }}.vsix
-
-            # Install
-            cursor --install-extension cursor-proxy-linux-x64-${{ steps.version.outputs.version }}.vsix --force
-            ```
-
-            #### Windows x64
-
-            ```powershell
-            # Download
-            Invoke-WebRequest -Uri "https://github.com/fjiangming/cursor-proxy/releases/download/${{ github.ref_name }}/cursor-proxy-win32-x64-${{ steps.version.outputs.version }}.vsix" -OutFile "cursor-proxy-win32-x64-${{ steps.version.outputs.version }}.vsix"
-
-            # Install
-            cursor --install-extension cursor-proxy-win32-x64-${{ steps.version.outputs.version }}.vsix --force
-            ```
+          body_path: apps/vscode-extension/README.md
 
