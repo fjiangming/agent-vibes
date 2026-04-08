@@ -143,12 +143,26 @@ The extension auto-starts the proxy server and guides you through first-run setu
 
 **Uninstall Extension Cleanly:**
 
-1. **Stop the Proxy**: Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) to open the Command Palette, and execute **Cursor Proxy: Stop Server**. (Alternatively, fully quit Cursor). This ensures the background `node` process releases its lock on the data files.
+> **⚠️ Important:** The proxy bridge process is designed as a **persistent background daemon** — it intentionally survives Cursor restarts so that forwarding stays active between sessions. This means simply closing Cursor will **not** stop the bridge. You must explicitly stop it before uninstalling.
+
+1. **Stop the Bridge daemon**: Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and execute **Cursor Proxy: Stop Server**. This sends a termination signal to the background bridge process and releases all file locks.
+
+   If the Command Palette is unavailable (e.g. Cursor already closed), manually kill the process:
+
+   - **Windows (PowerShell):**
+     ```powershell
+     Get-Process | Where-Object { $_.ProcessName -like "*cursor-proxy-bridge*" -or $_.ProcessName -like "*agent-vibes-bridge*" } | Stop-Process -Force
+     ```
+   - **macOS / Linux:**
+     ```bash
+     pkill -f "cursor-proxy-bridge" ; pkill -f "agent-vibes-bridge"
+     ```
+
 2. Go to the Extensions panel in Cursor, search for **Cursor Proxy**, and click **Uninstall**.
-3. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). If Windows complains that the folder is in use, make sure you performed Step 1 correctly. There are no global registry keys left behind.
+3. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). If the folder refuses to delete, a bridge process is still running — go back to Step 1.
 4. **Upgrading from old version?** If you previously used the extension under its old name (`agent-vibes`), you may also need to:
    - Uninstall the old extension `funny-vibes.agent-vibes` from the Extensions panel (or run `cursor --uninstall-extension funny-vibes.agent-vibes`).
-   - Delete the legacy data directory `~/.agent-vibes` (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`, macOS/Linux: `rm -rf ~/.agent-vibes`). If the folder refuses to delete, an old bridge process is still running — kill it first via Task Manager / `Get-Process | Where-Object { $_.Path -like "*agent-vibes*" } | Stop-Process -Force`, then retry.
+   - Delete the legacy data directory `~/.agent-vibes` (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`, macOS/Linux: `rm -rf ~/.agent-vibes`).
 
 ## Backend Configuration Reference
 

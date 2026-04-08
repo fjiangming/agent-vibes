@@ -130,12 +130,26 @@ cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
 
 **干净卸载插件：**
 
-1. **先停止后端服务释放文件占用**：在 Cursor 中按下 `Ctrl+Shift+P` (Mac 使用 `Cmd+Shift+P`) 打开命令面板，执行 **Cursor Proxy: Stop Server** 来关停后台服务。（或者你也可以选择直接彻底退出关闭 Cursor 软件本身）。
+> **⚠️ 重要提示：** 代理桥接进程（bridge）被设计为**持久化后台守护进程**——它会在 Cursor 重启后继续运行，以保持网络转发在会话间持续生效。这意味着单纯关闭 Cursor **不会**停止 bridge 进程。卸载前必须先手动停止它。
+
+1. **停止 Bridge 守护进程**：打开命令面板（`Ctrl+Shift+P` / `Cmd+Shift+P`），执行 **Cursor Proxy: Stop Server**。该命令会向后台 bridge 进程发送终止信号并释放所有文件锁。
+
+   如果命令面板不可用（例如 Cursor 已经关闭），请手动终止进程：
+
+   - **Windows (PowerShell)：**
+     ```powershell
+     Get-Process | Where-Object { $_.ProcessName -like "*cursor-proxy-bridge*" -or $_.ProcessName -like "*agent-vibes-bridge*" } | Stop-Process -Force
+     ```
+   - **macOS / Linux：**
+     ```bash
+     pkill -f "cursor-proxy-bridge" ; pkill -f "agent-vibes-bridge"
+     ```
+
 2. 在 Cursor 左侧的扩展面板中搜索 **Cursor Proxy**，点击 **卸载 (Uninstall)**。
-3. 最后，删除系统自动生成的后端数据目录（Windows 用户请在终端执行：`Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux 执行 `rm -rf ~/.cursor-proxy`）。程序纯绿色执行，没有任何全局残留或注册表垃圾。如果提示"文件被占用无法删除"，请确认你已经做好了第 1 步。
+3. 删除后端数据目录（Windows：`Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux：`rm -rf ~/.cursor-proxy`）。如果提示"文件被占用"，说明 bridge 进程仍在运行，请返回第 1 步。程序纯绿色，没有任何注册表残留。
 4. **从旧版升级？** 如果你之前使用的是旧名称 `agent-vibes` 版本的插件，还需要额外清理：
    - 卸载旧版扩展 `funny-vibes.agent-vibes`（可在扩展面板搜索卸载，或执行 `cursor --uninstall-extension funny-vibes.agent-vibes`）。
-   - 删除旧版数据目录 `~/.agent-vibes`（Windows：`Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`，macOS/Linux：`rm -rf ~/.agent-vibes`）。如果提示目录被占用无法删除，说明旧版的 bridge 后台进程仍在运行，请先通过任务管理器结束它，或执行 `Get-Process | Where-Object { $_.Path -like "*agent-vibes*" } | Stop-Process -Force`，然后再重试删除。
+   - 删除旧版数据目录 `~/.agent-vibes`（Windows：`Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`，macOS/Linux：`rm -rf ~/.agent-vibes`）。
 
 ## 后端配置参考
 
