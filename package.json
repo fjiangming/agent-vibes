@@ -1,6 +1,6 @@
 {
   "name": "agent-vibes",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Unified Agent Gateway — Enables Claude Code CLI and Cursor IDE to use free AI backends through protocol translation",
   "private": true,
   "bin": {
