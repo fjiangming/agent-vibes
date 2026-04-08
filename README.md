@@ -238,7 +238,8 @@ Configuration:
       "baseUrl": "https://b.example.com/v1",
       "apiKey": "sk-yyy",
       "proxyUrl": "http://127.0.0.1:7897",
-      "preferResponsesApi": true
+      "preferResponsesApi": true,
+      "responsesApiModels": ["o3", "o4-mini"]
     }
   ]
 }
@@ -250,7 +251,8 @@ Behavior:
 - If both OpenAI-compatible and Codex are configured, GPT requests go to OpenAI-compatible first.
 - When quota is exhausted, the system automatically switches to the next available account.
 - `proxyUrl` routes requests through the specified HTTP/SOCKS proxy for that account.
-- `preferResponsesApi=true` uses the OpenAI Responses API (`/v1/responses`) instead of Chat Completions.
+- `preferResponsesApi=true` uses the OpenAI Responses API (`/v1/responses`) instead of Chat Completions for all models on this account.
+- `responsesApiModels` (optional): an array of model name patterns (or comma-separated string) that should always use the Responses API, even when `preferResponsesApi` is not set. Useful for routing only specific reasoning models (e.g. `o3`, `o4-mini`) through the Responses endpoint while keeping others on Chat Completions.
 
 ### 3. Claude API
 Use for third-party Claude-compatible APIs.

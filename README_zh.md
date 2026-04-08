@@ -209,7 +209,8 @@ cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
       "baseUrl": "https://b.example.com/v1",
       "apiKey": "sk-yyy",
       "proxyUrl": "http://127.0.0.1:7897",
-      "preferResponsesApi": true
+      "preferResponsesApi": true,
+      "responsesApiModels": ["o3", "o4-mini"]
     }
   ]
 }
@@ -221,7 +222,8 @@ cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
 - 同时配置 OpenAI 兼容后端和 Codex 后端时，GPT 请求优先走 OpenAI 兼容后端。
 - 额度耗尽时自动切换到下一个可用账号。
 - `proxyUrl` 可为该账号指定 HTTP/SOCKS 代理地址。
-- `preferResponsesApi=true` 时使用 OpenAI Responses API（`/v1/responses`）代替 Chat Completions。
+- `preferResponsesApi=true` 时，该账号的所有模型都使用 OpenAI Responses API（`/v1/responses`）代替 Chat Completions。
+- `responsesApiModels`（可选）：一个模型名称数组（或逗号分隔的字符串），指定哪些模型应始终使用 Responses API，即使未设置 `preferResponsesApi`。适用于仅将特定推理模型（如 `o3`、`o4-mini`）路由到 Responses 端点，而其他模型仍走 Chat Completions。
 
 ### 3. Claude API
 用于接入第三方 Claude 兼容 API。
