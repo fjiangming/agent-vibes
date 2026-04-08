@@ -75,102 +75,10 @@ native client compatibility for Cursor and native upstream fidelity for Antigrav
   TypeScript/NestJS architecture. The Cursor native protocol layer and
   Antigravity worker pool are original implementations.
 
-## Quick Start
-
-### One-Click Start (Recommended)
-
-This is the easiest way to launch the service without manual cloning or setup.
-The script will automatically fetch the latest `dev` branch to a hidden
-`~/.cursor-proxy` directory, install dependencies, and start the service.
-
-**🖥️ Windows (PowerShell):**
-
-```powershell
-# Default installation path is C:\Users\<username>\.cursor-proxy
-Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.ps1" | Invoke-Expression
-
-# Custom installation path (e.g. to D:\agent-vibes)
-$env:AGENT_VIBES_DIR="D:\agent-vibes"; Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.ps1" | Invoke-Expression
-```
-
-**🍎 macOS / 🐧 Linux:**
-
-```bash
-# Default installation path is ~/.cursor-proxy
-curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.sh | bash
-
-# Custom installation path (e.g. to /opt/agent-vibes)
-curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.sh | bash -s -- /opt/agent-vibes
-```
-
-- **Stop Service**: Press `Ctrl + C` in the running terminal.
-- **Update Service**: Whether you installed using the default or custom path, simply **re-run the exact same command you used to install**.
-  The script will automatically detect the existing directory, pull the latest code using `git fetch` and `git reset --hard origin/dev`, reinstall dependencies, and restart.
-- **Clean Uninstall**: First, ensure the proxy service is stopped (Press `Ctrl + C` if it is running in your terminal). Then simply delete the `.cursor-proxy` folder in your home
-  directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`,
-  macOS/Linux: `rm -rf ~/.cursor-proxy`). If you receive a "File in use" error, double-check that Node.js or Cursor is fully closed. There is no registry or global system pollution.
-
-### Manual Source Installation (Advanced)
-
-**From source (all platforms):**
-
-> **Tip:** If you only need Cursor IDE support, skip this and use the **Option A: Extension** install below — no source build required.
->
-> **Note:** Primary development and testing is done on macOS.
-> Linux and Windows support is implemented but not fully tested —
-> scripts may have edge-case bugs on those platforms. PRs welcome!
-
-```bash
-git clone https://github.com/fjiangming/cursor-proxy.git
-cd agent-vibes
-npm install && npm run build
-npm link                          # makes `agent-vibes` available globally
-```
-
-Generate SSL certificates:
-
-```bash
-# Install mkcert first: https://github.com/FiloSottile/mkcert#installation
-mkcert -install
-agent-vibes cert
-```
-
-
-This step completes the installation.
-
-**Clean Uninstall:**
-
-```bash
-npm rm -g agent-vibes             # remove the global command
-rm -rf ~/.cursor-proxy             # clear user data (Windows users: Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy")
-```
-
-### Choose One Upstream Source
-Antigravity ([Antigravity IDE](https://antigravity.google) or [Antigravity Manager](https://github.com/lbjlaq/Antigravity-Manager)):
-
-```bash
-agent-vibes sync --ide       # from Antigravity IDE
-agent-vibes sync --tools     # from Antigravity Manager
-```
-
-Claude Code third-party config:
-
-```bash
-agent-vibes sync --claude
-```
-
-Codex:
-
-```bash
-codex --login
-agent-vibes sync --codex
-```
-
-### Daily Use
+## Installation
 
 A free Cursor account is enough to use all agentic proxy features. No paid Cursor plan is required.
-
-**Option A: Extension (Recommended)**
+This project is exclusively designed to be used as a Cursor Extension. It handles the backend proxy execution natively.
 
 > **💡 Important Note on Secondary Development and Custom Features:**
 >
@@ -239,30 +147,6 @@ The extension auto-starts the proxy server and guides you through first-run setu
 2. Go to the Extensions panel in Cursor, search for **Cursor Proxy**, and click **Uninstall**.
 3. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). If Windows complains that the folder is in use, make sure you performed Step 1 correctly. There are no global registry keys left behind.
 
-**Option B: CLI**
-
-Cursor requires HTTPS interception — one-time setup:
-
-```bash
-# 1. Add DNS redirect to hosts file
-agent-vibes forward hosts
-
-# 2. Enable port forwarding (uses TCP relay on macOS, iptables on Linux, netsh on Windows)
-agent-vibes forward on
-```
-
-Then start the proxy:
-
-```bash
-agent-vibes
-```
-
-Verify everything is working:
-
-```bash
-agent-vibes forward status
-```
-
 ## Backend Configuration Reference
 
 ### 1. Antigravity
@@ -287,17 +171,15 @@ Use for Antigravity / Google Cloud Code access.
 
 Configuration:
 
-```bash
-agent-vibes sync --ide
-agent-vibes sync --tools
-```
+*   Open Cursor Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+*   Execute **`Cursor Proxy: Sync Antigravity IDE Credentials`** (or **`Sync Antigravity Tools`**)
 
 Behavior:
 
 - Credentials are synced into `~/.cursor-proxy/data/antigravity-accounts.json`.
 - Supports multi-account rotation.
-- **Claude model routing:** When Claude Code CLI routes through the Google backend,
-  only **Opus** models use the Claude-through-Google (Cloud Code) path.
+- **Claude model routing:** When Cursor routes through the Google backend,
+  only **Opus** models use the proxy path.
   Non-Opus Claude models (Sonnet, Haiku, etc.) are automatically redirected to
   **Gemini 3.1 Pro High**, preserving Claude quota for complex agentic tasks.
 - **Quota fallback (opt-in):** When all Google Cloud Code accounts are quota-exhausted
@@ -321,10 +203,8 @@ Configuration:
 
 - Codex:
 
-```bash
-codex --login
-agent-vibes sync --codex
-```
+*   Login via `codex --login` in your terminal.
+*   Open Cursor Command Palette and execute **`Cursor Proxy: Sync Codex Credentials`**.
 
 - OpenAI-compatible file: `~/.cursor-proxy/data/openai-compat-accounts.json`
 
@@ -360,7 +240,7 @@ Use for third-party Claude-compatible APIs.
 
 Configuration:
 
-- `agent-vibes sync --claude` reads `~/.claude/settings.json` and writes or updates a managed `claude-code-sync` entry in `~/.cursor-proxy/data/claude-api-accounts.json`.
+*   Open Cursor Command Palette and execute **`Cursor Proxy: Sync Claude Credentials`**. This reads `~/.claude/settings.json` and writes or updates a managed `claude-code-sync` entry in `~/.cursor-proxy/data/claude-api-accounts.json`.
   The managed entry mirrors the current source settings; if the source no longer declares explicit model IDs, stale managed `models` are removed so dynamic discovery can take effect.
 - Or edit `~/.cursor-proxy/data/claude-api-accounts.json` manually:
 

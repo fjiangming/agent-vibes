@@ -4,7 +4,7 @@
 
 > **统一 Agent 网关** — 通过 **Claude Code CLI** 和 **Cursor IDE** 使用 **Antigravity** 与 **Codex** AI 后端。
 
-[![CI](https://github.com/fjiangming/cursor-proxy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fjiangming/cursor-proxy/actions/workflows/ci.yml)
+[![CI](https://github.com/fjiangming/agent-vibes/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/fjiangming/agent-vibes/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-≥24-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -63,97 +63,11 @@ Cursor Proxy 是一个代理服务器，通过协议转换将 AI 编程客户端
 - **致谢：** 本项目借鉴和移植了大量开源项目的代码与思路，其中 Claude Code CLI 和 Codex CLI 主要参考
   [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)，在 TypeScript/NestJS 架构下重写。Cursor 原生协议层和 Antigravity worker 池为原创实现。
 
-### 一键部署启动（推荐）
-## 快速开始
 
-### 一键部署启动（推荐）
-
-这是最简单的使用方式，无需手动拉取代码或配置环境。脚本会自动拉取最新 `dev` 分支代码到 `~/.cursor-proxy` 隐藏目录，并安装依赖启动服务。
-
-**🖥️ Windows (PowerShell):**
-
-```powershell
-# 默认安装到 C:\Users\<用户名>\.cursor-proxy
-Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.ps1" | Invoke-Expression
-
-# 自定义安装路径（例如安装到 D:\agent-vibes）
-$env:AGENT_VIBES_DIR="D:\agent-vibes"; Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.ps1" | Invoke-Expression
-```
-
-**🍎 macOS / 🐧 Linux:**
-
-```bash
-# 默认安装到 ~/.cursor-proxy
-curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.sh | bash
-
-# 自定义安装路径（例如安装到 /opt/agent-vibes）
-curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.sh | bash -s -- /opt/agent-vibes
-```
-
-- **停止服务**：在运行服务的终端中按下 `Ctrl + C` 即可。
-- **如何更新**：无论是一键安装还是自定义路径安装，你只需**重新执行一次你安装时运行的命令**即可。
-  脚本会自动检测已存在的目录，使用 `git fetch` 和 `git reset --hard origin/dev` 拉取最新代码并强制重新编译安装依赖。
-- **干净卸载**：如果你目前正在运行终端服务，请先在终端中按下 `Ctrl + C` 停止服务，然后再删除用户主目录下的 `.cursor-proxy` 文件夹（Windows 可执行 `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux 执行 `rm -rf ~/.cursor-proxy`）。如果 Windows 提示文件被占用无法删除，请确保终端进程已被完全关闭。没有全局或注册表残留。
-
-### **源码安装（全平台）：**
-
-> **提示：** 如果你只需要 Cursor IDE 支持，可以跳过源码安装，直接使用下方的 **方式 A：扩展安装**，无需编译。
->
-> **说明：** 当前主要在 macOS 上开发与测试。
-> Linux 和 Windows 虽然都已实现支持，但尚未完整验证，脚本在这些平台上仍可能存在边界问题。欢迎 PR。
-
-```bash
-git clone https://github.com/fjiangming/cursor-proxy.git
-cd agent-vibes
-npm install && npm run build
-npm link                          # 将 `agent-vibes` 注册为全局命令
-```
-
-生成 SSL 证书：
-
-```bash
-# 先安装 mkcert: https://github.com/FiloSottile/mkcert#installation
-mkcert -install
-agent-vibes cert
-```
-
-上面这一步完成安装。
-上面这一步完成安装。
-
-**干净卸载：**
-
-```bash
-npm rm -g agent-vibes             # 移除全局命令
-rm -rf ~/.cursor-proxy             # 清除用户数据（Windows 用户请执行：Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"）
-```
-
-
-### 选择一个上游来源
-Antigravity（[Antigravity IDE](https://antigravity.google) 或 [Antigravity Manager](https://github.com/lbjlaq/Antigravity-Manager)）：
-
-```bash
-agent-vibes sync --ide       # 从 Antigravity IDE 同步
-agent-vibes sync --tools     # 从 Antigravity Manager 同步
-```
-
-Claude Code 第三方配置：
-
-```bash
-agent-vibes sync --claude
-```
-
-Codex：
-
-```bash
-codex --login
-agent-vibes sync --codex
-```
-
-### 日常使用
+## 安装
 
 使用免费版 Cursor 账号即可体验所有的 AI 代理特性，不需要开通 Cursor 付费订阅。
-
-**方式 A：扩展安装（推荐）**
+本项目现已完全转换为 Cursor 内部扩展（Extension），所有代理服务均由插件自动接管。
 
 > **💡 关于二次开发与自定义功能的特别说明：**
 >
@@ -220,30 +134,6 @@ cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
 2. 在 Cursor 左侧的扩展面板中搜索 **Cursor Proxy**，点击 **卸载 (Uninstall)**。
 3. 最后，删除系统自动生成的后端数据目录（Windows 用户请在终端执行：`Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux 执行 `rm -rf ~/.cursor-proxy`）。程序纯绿色执行，没有任何全局残留或注册表垃圾。如果提示“文件被占用无法删除”，请确认你已经做好了第 1 步。
 
-**方式 B：CLI**
-
-Cursor 需要 HTTPS 拦截，以下为一次性设置：
-
-```bash
-# 1. 在 hosts 中添加 DNS 重定向
-agent-vibes forward hosts
-
-# 2. 开启端口转发（macOS 使用 TCP relay，Linux 使用 iptables，Windows 使用 netsh）
-agent-vibes forward on
-```
-
-然后启动代理：
-
-```bash
-agent-vibes
-```
-
-验证是否正常工作：
-
-```bash
-agent-vibes forward status
-```
-
 ## 后端配置参考
 
 ### 1. Antigravity
@@ -252,17 +142,14 @@ agent-vibes forward status
 
 配置方式：
 
-```bash
-agent-vibes sync --ide
-agent-vibes sync --tools
-```
+*   打开 Cursor 命令面板 (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+*   执行 **`Cursor Proxy: Sync Antigravity IDE Credentials`**（或 **`Sync Antigravity Tools`**）
 
 行为：
 
 - 凭据会同步到 `~/.cursor-proxy/data/antigravity-accounts.json`。
 - 支持多账号轮转。
-- **Claude 模型路由：** 当 Claude Code CLI 通过 Google 后端路由时，
-  只有 **Opus** 模型走 Claude-through-Google（Cloud Code）路径。
+- **Claude 模型路由：** 当使用 Google 后端进行请求时，只有 **Opus** 模型走 Cloud Code 原生代理通道。
   非 Opus 的 Claude 模型（Sonnet、Haiku 等）会自动重定向到
   **Gemini 3.1 Pro High**，从而节省 Claude 配额用于复杂的 agentic 任务。
 - **配额降级（可选）：** 当所有 Google Cloud Code 账号配额耗尽，
@@ -287,10 +174,8 @@ agent-vibes sync --tools
 
 - Codex：
 
-```bash
-codex --login
-agent-vibes sync --codex
-```
+*   在终端执行 `codex --login` 完成登录。
+*   打开 Cursor 命令面板执行 **`Cursor Proxy: Sync Codex Credentials`**。
 
 - OpenAI 兼容配置文件：`~/.cursor-proxy/data/openai-compat-accounts.json`
 
@@ -326,7 +211,7 @@ agent-vibes sync --codex
 
 配置方式：
 
-- `agent-vibes sync --claude` 会读取 `~/.claude/settings.json`，并在 `~/.cursor-proxy/data/claude-api-accounts.json` 中写入或更新一个受管理的 `claude-code-sync` 条目。
+*   打开 Cursor 命令面板执行 **`Cursor Proxy: Sync Claude Credentials`**。这会读取 `~/.claude/settings.json`，并在 `~/.cursor-proxy/data/claude-api-accounts.json` 中写入或更新一个受管理的 `claude-code-sync` 条目。
   这个受管理条目会以当前源设置为准；如果源设置里已经没有显式模型 ID，旧的受管 `models` 也会被清掉，以便动态发现生效。
 - 或手动编辑 `~/.cursor-proxy/data/claude-api-accounts.json`：
 
