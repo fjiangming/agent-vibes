@@ -22,7 +22,7 @@ export async function activate(
 ): Promise<void> {
   // Initialize logger
   logger.initialize()
-  logger.info("Agent Vibes extension activating...")
+  logger.info("Cursor Proxy extension activating...")
 
   // Create core services
   const config = new ConfigManager()
@@ -46,7 +46,7 @@ export async function activate(
   let currentPort = config.port
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (!event.affectsConfiguration("agentVibes.port")) return
+      if (!event.affectsConfiguration("cursorProxy.port")) return
 
       const nextPort = config.port
       if (nextPort === currentPort) return
@@ -55,7 +55,7 @@ export async function activate(
       currentPort = nextPort
       network?.setPort(nextPort)
 
-      logger.info(`Agent Vibes port changed: ${previousPort} → ${nextPort}`)
+      logger.info(`Cursor Proxy port changed: ${previousPort} → ${nextPort}`)
 
       const bridgeRunning = bridge?.isRunning ?? false
       const forwardingActive = network?.isForwardingActive() ?? false
@@ -64,7 +64,7 @@ export async function activate(
         if (bridgeRunning) {
           statusIndicator?.showBusy(
             "Restarting…",
-            `Agent Vibes — Restarting bridge on port ${nextPort}`
+            `Cursor Proxy — Restarting bridge on port ${nextPort}`
           )
           await bridge?.restart()
           logger.info(`Bridge restarted on new port ${nextPort}`)
@@ -74,7 +74,7 @@ export async function activate(
         const message = error instanceof Error ? error.message : String(error)
         logger.error(`Failed to restart bridge after port change`, error)
         void vscode.window.showErrorMessage(
-          `Agent Vibes failed to restart on port ${nextPort}: ${message}`
+          `Cursor Proxy failed to restart on port ${nextPort}: ${message}`
         )
         return
       }
@@ -82,11 +82,11 @@ export async function activate(
       if (forwardingActive && network) {
         statusIndicator?.showBusy(
           "Reconfiguring…",
-          `Agent Vibes — Reconfiguring forwarding for port ${nextPort}`
+          `Cursor Proxy — Reconfiguring forwarding for port ${nextPort}`
         )
         executePrivileged(
           network.getReconfigureCommand(previousPort),
-          "Agent Vibes — Reconfigure Forwarding"
+          "Cursor Proxy — Reconfigure Forwarding"
         )
         setTimeout(() => statusIndicator?.clearBusy(), 8000)
       } else {
@@ -119,7 +119,7 @@ export async function activate(
     if (!hasAnyAccounts) missing.push("backend accounts")
 
     const action = await vscode.window.showInformationMessage(
-      `Agent Vibes needs setup: ${missing.join(" and ")} not configured.`,
+      `Cursor Proxy needs setup: ${missing.join(" and ")} not configured.`,
       "Setup Now",
       "Later"
     )
@@ -131,7 +131,7 @@ export async function activate(
       if (!hasAnyAccounts) {
         await vscode.commands.executeCommand(CMD.OPEN_CONFIG)
         vscode.window.showInformationMessage(
-          "Add your backend account files to the configured Agent Vibes account paths " +
+          "Add your backend account files to the configured Cursor Proxy account paths " +
             "(for example, antigravity-accounts.json or codex-accounts.json)."
         )
       }
@@ -159,7 +159,7 @@ export async function activate(
             if (action === "Enable") {
               executePrivileged(
                 network!.getEnableCommand(),
-                "Agent Vibes — Enable Forwarding"
+                "Cursor Proxy — Enable Forwarding"
               )
             }
           }
@@ -172,7 +172,7 @@ export async function activate(
       })
   }
 
-  logger.info("Agent Vibes extension activated")
+  logger.info("Cursor Proxy extension activated")
 }
 
 /**
@@ -182,6 +182,6 @@ export function deactivate(): void {
   bridge?.dispose()
   network?.dispose()
   statusIndicator?.dispose()
-  logger.info("Agent Vibes extension deactivated")
+  logger.info("Cursor Proxy extension deactivated")
   logger.dispose()
 }

@@ -11,12 +11,12 @@ const ACCOUNT_CONFIG_ENV_VARS: Record<string, string> = {
 }
 
 /**
- * Returns the unified Agent Vibes data directory.
- * Priority: AGENT_VIBES_DATA_DIR env > ~/.agent-vibes/
+ * Returns the unified Cursor Proxy data directory.
+ * Priority: AGENT_VIBES_DATA_DIR env > ~/.cursor-proxy/
  */
-export function getAgentVibesDataDir(): string {
+export function getCursorProxyDataDir(): string {
   return (
-    process.env.AGENT_VIBES_DATA_DIR || path.join(os.homedir(), ".agent-vibes")
+    process.env.AGENT_VIBES_DATA_DIR || path.join(os.homedir(), ".cursor-proxy")
   )
 }
 
@@ -66,7 +66,7 @@ export function resolveConfiguredAccountConfigPath(
  * Get candidate paths for an account config file.
  * Priority:
  * 1. Explicit backend-specific env override
- * 2. Unified runtime path (~/.agent-vibes/data/)
+ * 2. Unified runtime path (~/.cursor-proxy/data/)
  * 3. Legacy dev fallback (only while the unified file is absent)
  */
 export function getAccountConfigPathCandidates(filename: string): string[] {
@@ -75,7 +75,7 @@ export function getAccountConfigPathCandidates(filename: string): string[] {
     return [configuredPath]
   }
 
-  const unifiedPath = path.resolve(getAgentVibesDataDir(), "data", filename)
+  const unifiedPath = path.resolve(getCursorProxyDataDir(), "data", filename)
   if (fs.existsSync(unifiedPath)) {
     return [unifiedPath]
   }
@@ -90,7 +90,7 @@ export function getAccountConfigPathCandidates(filename: string): string[] {
 export function resolveDefaultAccountConfigPath(filename: string): string {
   return (
     resolveConfiguredAccountConfigPath(filename) ||
-    path.resolve(getAgentVibesDataDir(), "data", filename)
+    path.resolve(getCursorProxyDataDir(), "data", filename)
   )
 }
 

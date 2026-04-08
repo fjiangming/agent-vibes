@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Cross-platform utility module for Agent Vibes.
+ * Cross-platform utility module for Cursor Proxy.
  *
  * Provides OS-aware path resolution for Cursor, Antigravity IDE,
  * Clash Verge, and system forwarding backends.

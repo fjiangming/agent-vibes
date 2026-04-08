@@ -1,10 +1,10 @@
 export { PersistenceModule } from "./persistence.module"
 export { PersistenceService } from "./persistence.service"
 export {
-  getAgentVibesHome,
-  getAgentVibesPgDataDir,
-  getAgentVibesLogsDir,
-  getAgentVibesCertsDir,
-  getAgentVibesAccountsDir,
-  ensureAgentVibesDirs,
+  getCursorProxyHome,
+  getCursorProxyPgDataDir,
+  getCursorProxyLogsDir,
+  getCursorProxyCertsDir,
+  getCursorProxyAccountsDir,
+  ensureCursorProxyDirs,
 } from "./agent-vibes-paths"

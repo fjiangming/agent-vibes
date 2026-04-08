@@ -98,7 +98,7 @@ export function registerCommands(
   cert: CertManager,
   network: NetworkManager
 ): void {
-  const FORWARDING_RELOAD_PROMPTED_KEY = "agentVibes.forwardingReloadPrompted"
+  const FORWARDING_RELOAD_PROMPTED_KEY = "cursorProxy.forwardingReloadPrompted"
 
   const promptReloadAfterForwardingEnabled = async (): Promise<void> => {
     if (context.globalState.get<boolean>(FORWARDING_RELOAD_PROMPTED_KEY)) {
@@ -139,7 +139,7 @@ export function registerCommands(
         // Execute forwarding in terminal (requires sudo)
         executePrivileged(
           network.getEnableCommand(),
-          "Agent Vibes — Enable Forwarding"
+          "Cursor Proxy — Enable Forwarding"
         )
         void promptReloadAfterForwardingEnabled()
       }
@@ -152,7 +152,7 @@ export function registerCommands(
       if (network.isForwardingActive()) {
         executePrivileged(
           network.getDisableCommand(),
-          "Agent Vibes — Disable Forwarding"
+          "Cursor Proxy — Disable Forwarding"
         )
       }
       await bridge.stop()
@@ -254,7 +254,7 @@ export function registerCommands(
           return
         }
 
-        // Write to ~/.agent-vibes/data/antigravity-accounts.json
+        // Write to ~/.cursor-proxy/data/antigravity-accounts.json
         // Upsert imported accounts while preserving unmatched existing ones
         const destPath = config.antigravityAccountsPath
         const existing = config.readAccounts(destPath)
@@ -369,10 +369,10 @@ export function registerCommands(
             // Windows: Run PowerShell script elevated
             executePrivileged(
               `powershell -ExecutionPolicy Bypass -File "${scriptPath}"`,
-              "Agent Vibes — Trust CA"
+              "Cursor Proxy — Trust CA"
             )
           } else {
-            executePrivileged(scriptPath, "Agent Vibes — Trust CA")
+            executePrivileged(scriptPath, "Cursor Proxy — Trust CA")
           }
         }
       } catch (err) {
@@ -395,7 +395,7 @@ export function registerCommands(
 
       executePrivileged(
         network.getEnableCommand(),
-        "Agent Vibes — Enable Forwarding"
+        "Cursor Proxy — Enable Forwarding"
       )
       void promptReloadAfterForwardingEnabled()
     })
@@ -405,7 +405,7 @@ export function registerCommands(
     vscode.commands.registerCommand(CMD.DISABLE_FORWARDING, () => {
       executePrivileged(
         network.getDisableCommand(),
-        "Agent Vibes — Disable Forwarding"
+        "Cursor Proxy — Disable Forwarding"
       )
     })
   )
@@ -441,7 +441,7 @@ export function registerCommands(
     vscode.commands.registerCommand(CMD.OPEN_CONFIG, () => {
       vscode.commands.executeCommand(
         "workbench.action.openSettings",
-        "agentVibes"
+        "cursorProxy"
       )
     })
   )

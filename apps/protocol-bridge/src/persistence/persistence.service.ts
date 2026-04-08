@@ -8,9 +8,9 @@ import { DatabaseSync } from "node:sqlite"
 import * as fs from "fs"
 import * as path from "path"
 import {
-  getAgentVibesPgDataDir,
-  getAgentVibesAccountsDir,
-  ensureAgentVibesDirs,
+  getCursorProxyPgDataDir,
+  getCursorProxyAccountsDir,
+  ensureCursorProxyDirs,
 } from "./agent-vibes-paths"
 import { resolveProtocolBridgePath } from "../shared/protocol-bridge-paths"
 
@@ -25,7 +25,7 @@ const DB_FILENAME = "agent-vibes.db"
  * Architecture benefits:
  * - Single DB connection, single WAL journal
  * - Version-controlled schema migrations
- * - Unified data directory: ~/.agent-vibes/
+ * - Unified data directory: ~/.cursor-proxy/
  * - All services share one PersistenceService via NestJS DI
  * - Zero native C++ addon — SEA-compatible
  */
@@ -46,8 +46,8 @@ export class PersistenceService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
-    ensureAgentVibesDirs()
-    const dataDir = getAgentVibesPgDataDir()
+    ensureCursorProxyDirs()
+    const dataDir = getCursorProxyPgDataDir()
     const dbPath = path.join(dataDir, DB_FILENAME)
 
     this.logger.log(`Initializing SQLite at ${dbPath}`)
@@ -150,7 +150,7 @@ export class PersistenceService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Auto-migrate account config files from the dev directory
-   * (apps/protocol-bridge/data/) to the unified ~/.agent-vibes/data/.
+   * (apps/protocol-bridge/data/) to the unified ~/.cursor-proxy/data/.
    * Only copies if the target file does NOT already exist (safe first-run migration).
    */
   private migrateAccountConfigs(): void {
@@ -161,7 +161,7 @@ export class PersistenceService implements OnModuleInit, OnModuleDestroy {
       "openai-compat-accounts.json",
     ]
 
-    const targetDir = getAgentVibesAccountsDir()
+    const targetDir = getCursorProxyAccountsDir()
 
     for (const filename of ACCOUNT_FILES) {
       const targetPath = path.join(targetDir, filename)

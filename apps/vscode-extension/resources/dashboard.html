@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-  <title>Agent Vibes Dashboard</title>
+  <title>Cursor Proxy Dashboard</title>
   <style>
     /* ── Design tokens (matching sidebar) ── */
     :root {
@@ -522,9 +522,9 @@
     <div id="pane-overview" class="pane active">
       <!-- Branding -->
       <div style="display:flex;align-items:center;gap:var(--sp-4);margin-bottom:var(--sp-6)">
-        <img id="overview-logo" src="" alt="Agent Vibes" style="width:48px;height:48px;border-radius:50%;flex-shrink:0" />
+        <img id="overview-logo" src="" alt="Cursor Proxy" style="width:48px;height:48px;border-radius:50%;flex-shrink:0" />
         <div>
-          <div style="font-size:var(--text-2xl);font-weight:800;letter-spacing:-0.02em">Agent Vibes</div>
+          <div style="font-size:var(--text-2xl);font-weight:800;letter-spacing:-0.02em">Cursor Proxy</div>
           <div style="font-size:var(--text-sm);color:var(--fg-2)">Unified AI Agent Gateway - Happy vibing!</div>
         </div>
       </div>
@@ -683,8 +683,8 @@
         label: 'Antigravity', barCls: 'ch-bar-ag', beCls: 'be-ag', color: '#34d399',
         mode: 'sync',
         sync: [
-          { label: 'Sync Antigravity IDE', cmd: 'agentVibes.syncAntigravityIDE' },
-          { label: 'Sync Antigravity Tool', cmd: 'agentVibes.syncAntigravityTools' },
+          { label: 'Sync Antigravity IDE', cmd: 'cursorProxy.syncAntigravityIDE' },
+          { label: 'Sync Antigravity Tool', cmd: 'cursorProxy.syncAntigravityTools' },
         ],
         fields: [],
         name: a => a.email || 'Synced account',
@@ -693,7 +693,7 @@
       codex: {
         label: 'Codex (OpenAI)', barCls: 'ch-bar-cx', beCls: 'be-cx', color: '#fbbf24',
         mode: 'codex-oauth',
-        sync: [{ label: 'Sync Codex', cmd: 'agentVibes.syncCodex' }],
+        sync: [{ label: 'Sync Codex', cmd: 'cursorProxy.syncCodex' }],
         fields: [],
         name: a => {
           var base = a.email || a.accountId || 'Unknown';
@@ -794,18 +794,18 @@
 
     var lastStatusData = null;
     var ACTION_META = {
-      'agentVibes.startServer': { label: 'Start', tone: 'primary' },
-      'agentVibes.stopServer': { label: 'Stop', tone: 'primary' },
-      'agentVibes.restartServer': { label: 'Restart', tone: 'secondary' },
-      'agentVibes.enableForwarding': { label: 'Enable forwarding', tone: 'primary' },
-      'agentVibes.disableForwarding': { label: 'Disable forwarding', tone: 'secondary' },
+      'cursorProxy.startServer': { label: 'Start', tone: 'primary' },
+      'cursorProxy.stopServer': { label: 'Stop', tone: 'primary' },
+      'cursorProxy.restartServer': { label: 'Restart', tone: 'secondary' },
+      'cursorProxy.enableForwarding': { label: 'Enable forwarding', tone: 'primary' },
+      'cursorProxy.disableForwarding': { label: 'Disable forwarding', tone: 'secondary' },
     };
     var ACTION_TIMEOUTS = {
-      'agentVibes.startServer': 60000,
-      'agentVibes.stopServer': 45000,
-      'agentVibes.restartServer': 60000,
-      'agentVibes.enableForwarding': 45000,
-      'agentVibes.disableForwarding': 45000,
+      'cursorProxy.startServer': 60000,
+      'cursorProxy.stopServer': 45000,
+      'cursorProxy.restartServer': 60000,
+      'cursorProxy.enableForwarding': 45000,
+      'cursorProxy.disableForwarding': 45000,
     };
 
     function esc(v) {
@@ -884,26 +884,26 @@
       if (!pending || !status) return null;
 
       switch (pending.command) {
-        case 'agentVibes.stopServer':
+        case 'cursorProxy.stopServer':
           if (status.bridge === 'Running' || status.bridge === 'starting') {
-            return 'agentVibes.stopServer';
+            return 'cursorProxy.stopServer';
           }
           if (pending.initialForwarding && status.forwarding) {
-            return 'agentVibes.disableForwarding';
+            return 'cursorProxy.disableForwarding';
           }
-          return 'agentVibes.stopServer';
-        case 'agentVibes.startServer':
+          return 'cursorProxy.stopServer';
+        case 'cursorProxy.startServer':
           if (status.bridge !== 'Running') {
-            return 'agentVibes.startServer';
+            return 'cursorProxy.startServer';
           }
           if (!status.forwarding) {
-            return 'agentVibes.enableForwarding';
+            return 'cursorProxy.enableForwarding';
           }
-          return 'agentVibes.startServer';
-        case 'agentVibes.restartServer':
-          return 'agentVibes.restartServer';
-        case 'agentVibes.enableForwarding':
-        case 'agentVibes.disableForwarding':
+          return 'cursorProxy.startServer';
+        case 'cursorProxy.restartServer':
+          return 'cursorProxy.restartServer';
+        case 'cursorProxy.enableForwarding':
+        case 'cursorProxy.disableForwarding':
           return pending.command;
         default:
           return pending.command;
@@ -914,30 +914,30 @@
       var pending = getPendingCommand();
       if (!pending || !status) return;
 
-      if (pending.command === 'agentVibes.restartServer' && status.bridge !== 'Running') {
+      if (pending.command === 'cursorProxy.restartServer' && status.bridge !== 'Running') {
         pending.sawBridgeLeaveRunning = true;
       }
 
       var done = false;
       switch (pending.command) {
-        case 'agentVibes.stopServer':
+        case 'cursorProxy.stopServer':
           done =
             status.bridge !== 'Running' &&
             status.bridge !== 'starting' &&
             (!pending.initialForwarding || !status.forwarding);
           break;
-        case 'agentVibes.startServer':
+        case 'cursorProxy.startServer':
           done = status.bridge === 'error' || (status.bridge === 'Running' && status.forwarding);
           break;
-        case 'agentVibes.restartServer':
+        case 'cursorProxy.restartServer':
           done =
             status.bridge === 'error' ||
             (pending.sawBridgeLeaveRunning && status.bridge === 'Running');
           break;
-        case 'agentVibes.enableForwarding':
+        case 'cursorProxy.enableForwarding':
           done = !!status.forwarding;
           break;
-        case 'agentVibes.disableForwarding':
+        case 'cursorProxy.disableForwarding':
           done = !status.forwarding;
           break;
       }
@@ -983,16 +983,16 @@
 
       const isRunning = s.bridge === 'Running';
       if (isRunning) {
-        baseActions.push({ label: 'Stop', command: 'agentVibes.stopServer', tone: 'primary' });
+        baseActions.push({ label: 'Stop', command: 'cursorProxy.stopServer', tone: 'primary' });
       } else {
-        baseActions.push({ label: 'Start', command: 'agentVibes.startServer', tone: 'primary' });
+        baseActions.push({ label: 'Start', command: 'cursorProxy.startServer', tone: 'primary' });
       }
-      baseActions.push({ label: 'Restart', command: 'agentVibes.restartServer', tone: 'secondary', disabled: !isRunning });
+      baseActions.push({ label: 'Restart', command: 'cursorProxy.restartServer', tone: 'secondary', disabled: !isRunning });
 
       if (s.forwarding) {
-        baseActions.push({ label: 'Disable forwarding', command: 'agentVibes.disableForwarding', tone: 'secondary' });
+        baseActions.push({ label: 'Disable forwarding', command: 'cursorProxy.disableForwarding', tone: 'secondary' });
       } else {
-        baseActions.push({ label: 'Enable forwarding', command: 'agentVibes.enableForwarding', tone: isRunning ? 'primary' : 'secondary' });
+        baseActions.push({ label: 'Enable forwarding', command: 'cursorProxy.enableForwarding', tone: isRunning ? 'primary' : 'secondary' });
       }
 
       if (pendingDisplayCommand && !baseActions.some(function(action) { return action.command === pendingDisplayCommand; })) {
@@ -1834,7 +1834,7 @@
         okBtn.textContent = 'Sync from CLI';
         okBtn.disabled = false;
         okBtn.onclick = function() {
-          vscode.postMessage({ type: 'runCommand', command: 'agentVibes.syncCodex' });
+          vscode.postMessage({ type: 'runCommand', command: 'cursorProxy.syncCodex' });
           closeDlg();
         };
       }

@@ -8,11 +8,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/funny-vibes/agent-vibes.git"
+    "url": "git+https://github.com/funny-vibes/cursor-proxy.git"
   },
-  "homepage": "https://github.com/funny-vibes/agent-vibes#readme",
+  "homepage": "https://github.com/funny-vibes/cursor-proxy#readme",
   "bugs": {
-    "url": "https://github.com/funny-vibes/agent-vibes/issues"
+    "url": "https://github.com/funny-vibes/cursor-proxy/issues"
   },
   "author": "recronin",
   "keywords": [

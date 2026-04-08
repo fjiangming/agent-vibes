@@ -12,7 +12,7 @@ promoting them to `main`.
 ## Development Setup
 
 ```bash
-git clone https://github.com/funny-vibes/agent-vibes.git
+git clone https://github.com/funny-vibes/cursor-proxy.git
 cd agent-vibes
 npm install
 npm run dev

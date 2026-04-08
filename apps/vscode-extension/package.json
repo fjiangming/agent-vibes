@@ -6,13 +6,13 @@
   "version": "0.1.1",
   "private": true,
   "license": "MIT",
-  "homepage": "https://github.com/funny-vibes/agent-vibes#readme",
+  "homepage": "https://github.com/funny-vibes/cursor-proxy#readme",
   "bugs": {
-    "url": "https://github.com/funny-vibes/agent-vibes/issues"
+    "url": "https://github.com/funny-vibes/cursor-proxy/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/funny-vibes/agent-vibes.git"
+    "url": "https://github.com/funny-vibes/cursor-proxy.git"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -38,13 +38,13 @@
   },
   "badges": [
     {
-      "url": "https://github.com/funny-vibes/agent-vibes/actions/workflows/ci.yml/badge.svg?branch=main",
-      "href": "https://github.com/funny-vibes/agent-vibes/actions/workflows/ci.yml",
+      "url": "https://github.com/funny-vibes/cursor-proxy/actions/workflows/ci.yml/badge.svg?branch=main",
+      "href": "https://github.com/funny-vibes/cursor-proxy/actions/workflows/ci.yml",
       "description": "CI Status"
     },
     {
       "url": "https://img.shields.io/badge/License-MIT-blue.svg",
-      "href": "https://github.com/funny-vibes/agent-vibes/blob/main/LICENSE",
+      "href": "https://github.com/funny-vibes/cursor-proxy/blob/main/LICENSE",
       "description": "MIT License"
     },
     {
@@ -55,7 +55,7 @@
   ],
   "preview": true,
   "markdown": "github",
-  "qna": "https://github.com/funny-vibes/agent-vibes/discussions",
+  "qna": "https://github.com/funny-vibes/cursor-proxy/discussions",
   "sponsor": {
     "url": "https://github.com/sponsors/funny-vibes"
   },
@@ -70,101 +70,101 @@
   "contributes": {
     "commands": [
       {
-        "command": "agentVibes.startServer",
+        "command": "cursorProxy.startServer",
         "title": "Start Server",
-        "category": "Agent Vibes",
+        "category": "Cursor Proxy",
         "icon": "$(play)"
       },
       {
-        "command": "agentVibes.stopServer",
+        "command": "cursorProxy.stopServer",
         "title": "Stop Server",
-        "category": "Agent Vibes",
+        "category": "Cursor Proxy",
         "icon": "$(debug-stop)"
       },
       {
-        "command": "agentVibes.restartServer",
+        "command": "cursorProxy.restartServer",
         "title": "Restart Server",
-        "category": "Agent Vibes",
+        "category": "Cursor Proxy",
         "icon": "$(debug-restart)"
       },
       {
-        "command": "agentVibes.syncAntigravityIDE",
+        "command": "cursorProxy.syncAntigravityIDE",
         "title": "Sync Antigravity IDE Credentials",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.syncAntigravityTools",
+        "command": "cursorProxy.syncAntigravityTools",
         "title": "Sync Antigravity Tool Credentials",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.syncClaude",
+        "command": "cursorProxy.syncClaude",
         "title": "Sync Claude Credentials",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.syncCodex",
+        "command": "cursorProxy.syncCodex",
         "title": "Sync Codex Credentials",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.generateCert",
+        "command": "cursorProxy.generateCert",
         "title": "Generate SSL Certificates",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.enableForwarding",
+        "command": "cursorProxy.enableForwarding",
         "title": "Enable Port Forwarding",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.disableForwarding",
+        "command": "cursorProxy.disableForwarding",
         "title": "Disable Port Forwarding",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.forwardingStatus",
+        "command": "cursorProxy.forwardingStatus",
         "title": "Port Forwarding Status",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.openDashboard",
+        "command": "cursorProxy.openDashboard",
         "title": "Open Dashboard",
-        "category": "Agent Vibes",
+        "category": "Cursor Proxy",
         "icon": "$(dashboard)"
       },
       {
-        "command": "agentVibes.collectDiagnostics",
+        "command": "cursorProxy.collectDiagnostics",
         "title": "Collect Diagnostics",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.openConfig",
+        "command": "cursorProxy.openConfig",
         "title": "Edit Configuration",
-        "category": "Agent Vibes",
+        "category": "Cursor Proxy",
         "icon": "$(gear)"
       },
       {
-        "command": "agentVibes.patchCursor",
+        "command": "cursorProxy.patchCursor",
         "title": "Apply Cursor Patch",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.restoreCursor",
+        "command": "cursorProxy.restoreCursor",
         "title": "Restore Cursor Original",
-        "category": "Agent Vibes"
+        "category": "Cursor Proxy"
       },
       {
-        "command": "agentVibes.refreshDashboard",
+        "command": "cursorProxy.refreshDashboard",
         "title": "Refresh Dashboard",
-        "category": "Agent Vibes",
+        "category": "Cursor Proxy",
         "icon": "$(refresh)"
       }
     ],
     "configuration": {
-      "title": "Agent Vibes",
+      "title": "Cursor Proxy",
       "properties": {
-        "agentVibes.language": {
+        "cursorProxy.language": {
           "type": "string",
           "default": "en",
           "enum": [
@@ -177,47 +177,47 @@
           ],
           "description": "Dashboard display language"
         },
-        "agentVibes.autoStart": {
+        "cursorProxy.autoStart": {
           "type": "boolean",
           "default": true,
           "description": "Automatically start the proxy server when IDE launches"
         },
-        "agentVibes.port": {
+        "cursorProxy.port": {
           "type": "number",
           "default": 2026,
           "description": "Proxy server port"
         },
-        "agentVibes.healthCheckInterval": {
+        "cursorProxy.healthCheckInterval": {
           "type": "number",
           "default": 30,
           "description": "Health check polling interval in seconds (0 to disable)"
         },
-        "agentVibes.debugMode": {
+        "cursorProxy.debugMode": {
           "type": "boolean",
           "default": false,
           "description": "Enable debug logging"
         },
-        "agentVibes.dataDir": {
+        "cursorProxy.dataDir": {
           "type": "string",
           "default": "",
-          "description": "Custom data directory path (default: ~/.agent-vibes)"
+          "description": "Custom data directory path (default: ~/.cursor-proxy)"
         },
-        "agentVibes.antigravityAccountsPath": {
+        "cursorProxy.antigravityAccountsPath": {
           "type": "string",
           "default": "",
           "description": "Optional absolute path for antigravity-accounts.json. If empty, uses <dataDir>/data/antigravity-accounts.json"
         },
-        "agentVibes.codexAccountsPath": {
+        "cursorProxy.codexAccountsPath": {
           "type": "string",
           "default": "",
           "description": "Optional absolute path for codex-accounts.json. If empty, uses <dataDir>/data/codex-accounts.json"
         },
-        "agentVibes.openaiCompatAccountsPath": {
+        "cursorProxy.openaiCompatAccountsPath": {
           "type": "string",
           "default": "",
           "description": "Optional absolute path for openai-compat-accounts.json. If empty, uses <dataDir>/data/openai-compat-accounts.json"
         },
-        "agentVibes.claudeApiAccountsPath": {
+        "cursorProxy.claudeApiAccountsPath": {
           "type": "string",
           "default": "",
           "description": "Optional absolute path for claude-api-accounts.json. If empty, uses <dataDir>/data/claude-api-accounts.json"

@@ -22,14 +22,14 @@ export class StatusIndicator {
       vscode.StatusBarAlignment.Right,
       100
     )
-    this.item.command = "agentVibes.openDashboard"
+    this.item.command = "cursorProxy.openDashboard"
     this.update("stopped")
     this.item.show()
   }
 
   private render(): void {
     // Always open Dashboard on click
-    this.item.command = "agentVibes.openDashboard"
+    this.item.command = "cursorProxy.openDashboard"
 
     if (this.transientStatus) {
       this.item.text = this.transientStatus.text
@@ -42,19 +42,19 @@ export class StatusIndicator {
     switch (this.state) {
       case "running":
         this.item.text = `$(circle-filled) ${EXTENSION_DISPLAY_NAME}`
-        this.item.tooltip = "Agent Vibes — Running (click to open dashboard)"
+        this.item.tooltip = "Cursor Proxy — Running (click to open dashboard)"
         this.item.backgroundColor = undefined
         this.item.color = undefined
         break
       case "starting":
         this.item.text = `$(sync~spin) ${EXTENSION_DISPLAY_NAME} Starting…`
-        this.item.tooltip = "Agent Vibes — Starting..."
+        this.item.tooltip = "Cursor Proxy — Starting..."
         this.item.backgroundColor = undefined
         this.item.color = LOADING_COLOR
         break
       case "error":
         this.item.text = `$(warning) ${EXTENSION_DISPLAY_NAME}`
-        this.item.tooltip = "Agent Vibes — Error (click to open dashboard)"
+        this.item.tooltip = "Cursor Proxy — Error (click to open dashboard)"
         this.item.backgroundColor = new vscode.ThemeColor(
           "statusBarItem.errorBackground"
         )
@@ -63,7 +63,7 @@ export class StatusIndicator {
       case "stopped":
       default:
         this.item.text = `$(circle-outline) ${EXTENSION_DISPLAY_NAME}`
-        this.item.tooltip = "Agent Vibes — Stopped (click to open dashboard)"
+        this.item.tooltip = "Cursor Proxy — Stopped (click to open dashboard)"
         this.item.backgroundColor = undefined
         this.item.color = undefined
         break
@@ -78,7 +78,7 @@ export class StatusIndicator {
   showBusy(label: string, tooltip?: string): void {
     this.transientStatus = {
       text: `$(sync~spin) ${EXTENSION_DISPLAY_NAME} ${label}`,
-      tooltip: tooltip || `Agent Vibes — ${label}`,
+      tooltip: tooltip || `Cursor Proxy — ${label}`,
       backgroundColor: undefined,
       color: LOADING_COLOR,
     }

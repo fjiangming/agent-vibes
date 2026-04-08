@@ -47,12 +47,12 @@ type DashboardOverviewPayload = {
 }
 
 /**
- * Webview Panel for the Agent Vibes Dashboard.
+ * Webview Panel for the Cursor Proxy Dashboard.
  * Singleton — opening an existing panel brings it to focus.
  */
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined
-  private static readonly viewType = "agentVibes.dashboardPanel"
+  private static readonly viewType = "cursorProxy.dashboardPanel"
 
   private readonly panel: vscode.WebviewPanel
   private readonly extensionUri: vscode.Uri
@@ -129,7 +129,7 @@ export class DashboardPanel {
 
     const panel = vscode.window.createWebviewPanel(
       DashboardPanel.viewType,
-      "Agent Vibes Dashboard",
+      "Cursor Proxy Dashboard",
       vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -565,7 +565,7 @@ export class DashboardPanel {
       "openaiCompatAccountsPath",
       "claudeApiAccountsPath",
     ])
-    const config = vscode.workspace.getConfiguration("agentVibes")
+    const config = vscode.workspace.getConfiguration("cursorProxy")
 
     if (allowedBooleans.has(key)) {
       await config.update(
@@ -777,12 +777,12 @@ export class DashboardPanel {
             items: [
               {
                 label: "Data Directory",
-                desc: "Root directory for all Agent Vibes data (default: ~/.agent-vibes)",
+                desc: "Root directory for all Cursor Proxy data (default: ~/.cursor-proxy)",
                 type: "path",
                 key: "dataDir",
                 value:
                   vscode.workspace
-                    .getConfiguration("agentVibes")
+                    .getConfiguration("cursorProxy")
                     .get<string>("dataDir") || "",
                 placeholder: this.config.dataDir,
               },
@@ -793,7 +793,7 @@ export class DashboardPanel {
                 key: "antigravityAccountsPath",
                 value:
                   vscode.workspace
-                    .getConfiguration("agentVibes")
+                    .getConfiguration("cursorProxy")
                     .get<string>("antigravityAccountsPath") || "",
                 placeholder: this.config.antigravityAccountsPath,
               },
@@ -804,7 +804,7 @@ export class DashboardPanel {
                 key: "codexAccountsPath",
                 value:
                   vscode.workspace
-                    .getConfiguration("agentVibes")
+                    .getConfiguration("cursorProxy")
                     .get<string>("codexAccountsPath") || "",
                 placeholder: this.config.codexAccountsPath,
               },
@@ -815,7 +815,7 @@ export class DashboardPanel {
                 key: "openaiCompatAccountsPath",
                 value:
                   vscode.workspace
-                    .getConfiguration("agentVibes")
+                    .getConfiguration("cursorProxy")
                     .get<string>("openaiCompatAccountsPath") || "",
                 placeholder: this.config.openaiCompatAccountsPath,
               },
@@ -826,7 +826,7 @@ export class DashboardPanel {
                 key: "claudeApiAccountsPath",
                 value:
                   vscode.workspace
-                    .getConfiguration("agentVibes")
+                    .getConfiguration("cursorProxy")
                     .get<string>("claudeApiAccountsPath") || "",
                 placeholder: this.config.claudeApiAccountsPath,
               },
@@ -917,7 +917,7 @@ export class DashboardPanel {
     let overallState: DashboardOverviewPayload["overallState"] = "setup"
     let headline = "Setup required"
     let summary =
-      "Finish the remaining setup steps to route Cursor traffic through Agent Vibes."
+      "Finish the remaining setup steps to route Cursor traffic through Cursor Proxy."
 
     if (
       completedSteps === steps.length ||

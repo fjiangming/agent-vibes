@@ -1,9 +1,9 @@
 @echo off
-title Agent Vibes VSIX Packager
+title Cursor Proxy VSIX Packager
 color 0A
 
 echo =======================================================
-echo         Agent Vibes VSCode Extension Packager
+echo         Cursor Proxy VSCode Extension Packager
 echo =======================================================
 echo.
 

@@ -70,7 +70,7 @@ async function bootstrap() {
   }
 
   logStream.write(
-    `\n${"=".repeat(60)}\n[${new Date().toISOString()}] Agent Vibes server starting (debug=${isDebug})\n${"=".repeat(60)}\n`
+    `\n${"=".repeat(60)}\n[${new Date().toISOString()}] Cursor Proxy server starting (debug=${isDebug})\n${"=".repeat(60)}\n`
   )
 
   const origStdoutWrite = process.stdout.write.bind(process.stdout)
@@ -122,15 +122,15 @@ async function bootstrap() {
   const logger = new Logger("Bootstrap")
 
   // Check if SSL certificates exist for HTTP/2
-  // Priority: ~/.agent-vibes/certs/ (extension-generated) > apps/protocol-bridge/certs/ (mkcert)
-  const agentVibesCertsDir = path.join(
-    process.env.AGENT_VIBES_DATA_DIR || path.join(os.homedir(), ".agent-vibes"),
+  // Priority: ~/.cursor-proxy/certs/ (extension-generated) > apps/protocol-bridge/certs/ (mkcert)
+  const cursorProxyCertsDir = path.join(
+    process.env.AGENT_VIBES_DATA_DIR || path.join(os.homedir(), ".cursor-proxy"),
     "certs"
   )
   const certCandidates = [
     {
-      cert: path.join(agentVibesCertsDir, "server.pem"),
-      key: path.join(agentVibesCertsDir, "server-key.pem"),
+      cert: path.join(cursorProxyCertsDir, "server.pem"),
+      key: path.join(cursorProxyCertsDir, "server-key.pem"),
     },
     {
       cert: path.join(__dirname, "..", "certs", "localhost.crt"),
@@ -228,7 +228,7 @@ async function bootstrap() {
   })()
   if (!isSea) {
     const config = new DocumentBuilder()
-      .setTitle("Agent Vibes Proxy")
+      .setTitle("Cursor Proxy Proxy")
       .setDescription(
         "Unified Claude Code API Proxy with Antigravity and Gemini WebSearch"
       )
@@ -318,7 +318,7 @@ async function bootstrap() {
 ${logo.join("\n")}
 
 ${c.blue}╔${"═".repeat(W)}╗${c.reset}
-${c.blue}║${c.reset}${pad("", Math.floor((W - 30) / 2))}${c.bold}${c.blue}⚡ Agent Vibes Proxy Server ⚡${c.reset}${pad("", Math.ceil((W - 30) / 2))}${c.blue}║${c.reset}
+${c.blue}║${c.reset}${pad("", Math.floor((W - 30) / 2))}${c.bold}${c.blue}⚡ Cursor Proxy Proxy Server ⚡${c.reset}${pad("", Math.ceil((W - 30) / 2))}${c.blue}║${c.reset}
 ${sep}
 ${empty}
 ${line(`${c.green}▸${c.reset} Server    ${c.bold}${c.green}${serverUrl}${c.reset}`)}

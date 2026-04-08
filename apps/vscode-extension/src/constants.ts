@@ -1,33 +1,33 @@
 /**
- * Shared constants for the Agent Vibes extension.
+ * Shared constants for the Cursor Proxy extension.
  */
 
 // Extension identifiers
 export const EXTENSION_ID = "agent-vibes"
-export const EXTENSION_DISPLAY_NAME = "Agent Vibes"
+export const EXTENSION_DISPLAY_NAME = "Cursor Proxy"
 
 // Context keys (for when-clause evaluation)
-export const CTX_SERVER_RUNNING = "agentVibes.serverRunning"
+export const CTX_SERVER_RUNNING = "cursorProxy.serverRunning"
 
 // Command identifiers
 export const CMD = {
-  START_SERVER: "agentVibes.startServer",
-  STOP_SERVER: "agentVibes.stopServer",
-  RESTART_SERVER: "agentVibes.restartServer",
-  SYNC_ANTIGRAVITY_IDE: "agentVibes.syncAntigravityIDE",
-  SYNC_ANTIGRAVITY_TOOLS: "agentVibes.syncAntigravityTools",
-  SYNC_CLAUDE: "agentVibes.syncClaude",
-  SYNC_CODEX: "agentVibes.syncCodex",
-  GENERATE_CERT: "agentVibes.generateCert",
-  ENABLE_FORWARDING: "agentVibes.enableForwarding",
-  DISABLE_FORWARDING: "agentVibes.disableForwarding",
-  FORWARDING_STATUS: "agentVibes.forwardingStatus",
-  COLLECT_DIAGNOSTICS: "agentVibes.collectDiagnostics",
-  OPEN_CONFIG: "agentVibes.openConfig",
-  PATCH_CURSOR: "agentVibes.patchCursor",
-  RESTORE_CURSOR: "agentVibes.restoreCursor",
-  REFRESH_DASHBOARD: "agentVibes.refreshDashboard",
-  OPEN_DASHBOARD: "agentVibes.openDashboard",
+  START_SERVER: "cursorProxy.startServer",
+  STOP_SERVER: "cursorProxy.stopServer",
+  RESTART_SERVER: "cursorProxy.restartServer",
+  SYNC_ANTIGRAVITY_IDE: "cursorProxy.syncAntigravityIDE",
+  SYNC_ANTIGRAVITY_TOOLS: "cursorProxy.syncAntigravityTools",
+  SYNC_CLAUDE: "cursorProxy.syncClaude",
+  SYNC_CODEX: "cursorProxy.syncCodex",
+  GENERATE_CERT: "cursorProxy.generateCert",
+  ENABLE_FORWARDING: "cursorProxy.enableForwarding",
+  DISABLE_FORWARDING: "cursorProxy.disableForwarding",
+  FORWARDING_STATUS: "cursorProxy.forwardingStatus",
+  COLLECT_DIAGNOSTICS: "cursorProxy.collectDiagnostics",
+  OPEN_CONFIG: "cursorProxy.openConfig",
+  PATCH_CURSOR: "cursorProxy.patchCursor",
+  RESTORE_CURSOR: "cursorProxy.restoreCursor",
+  REFRESH_DASHBOARD: "cursorProxy.refreshDashboard",
+  OPEN_DASHBOARD: "cursorProxy.openDashboard",
 } as const
 
 // Default configuration values

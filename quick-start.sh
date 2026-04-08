@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Starting Agent Vibes setup..."
+echo "🚀 Starting Cursor Proxy setup..."
 
-REPO_URL="https://github.com/fjiangming/agent-vibes.git"
+REPO_URL="https://github.com/fjiangming/cursor-proxy.git"
 BRANCH="dev"
-TARGET_DIR="${AGENT_VIBES_DIR:-${1:-$HOME/.agent-vibes}}"
+TARGET_DIR="${AGENT_VIBES_DIR:-${1:-$HOME/.cursor-proxy}}"
 
 if ! command -v node &> /dev/null; then
     echo "❌ Node.js is not installed. Please install Node.js v24 or later."
@@ -34,5 +34,5 @@ npm install
 echo "🔨 Building project..."
 npm run build
 
-echo "✨ Starting Agent Vibes..."
+echo "✨ Starting Cursor Proxy..."
 npm run start

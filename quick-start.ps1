@@ -4,9 +4,9 @@ param (
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "🚀 Starting Agent Vibes setup..." -ForegroundColor Cyan
+Write-Host "🚀 Starting Cursor Proxy setup..." -ForegroundColor Cyan
 
-$REPO_URL = "https://github.com/fjiangming/agent-vibes.git"
+$REPO_URL = "https://github.com/fjiangming/cursor-proxy.git"
 $BRANCH = "dev"
 
 if (-not [string]::IsNullOrWhiteSpace($TargetDir)) {
@@ -14,7 +14,7 @@ if (-not [string]::IsNullOrWhiteSpace($TargetDir)) {
 } elseif (-not [string]::IsNullOrWhiteSpace($env:AGENT_VIBES_DIR)) {
     $TARGET_DIR = $env:AGENT_VIBES_DIR
 } else {
-    $TARGET_DIR = "$env:USERPROFILE\.agent-vibes"
+    $TARGET_DIR = "$env:USERPROFILE\.cursor-proxy"
 }
 
 Write-Host "📂 Target directory: $TARGET_DIR" -ForegroundColor Cyan
@@ -52,5 +52,5 @@ npm install
 Write-Host "🔨 Building project..." -ForegroundColor Yellow
 npm run build
 
-Write-Host "✨ Starting Agent Vibes..." -ForegroundColor Green
+Write-Host "✨ Starting Cursor Proxy..." -ForegroundColor Green
 npm run start

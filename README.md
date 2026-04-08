@@ -1,30 +1,30 @@
-# Agent Vibes
+# Cursor Proxy
 
 English | [ä¸­æ–‡](README_zh.md)
 
-> **Unified Agent Gateway** â€?Use **Antigravity** and **Codex** AI backends with **Claude Code CLI** and **Cursor IDE**.
+> **Unified Agent Gateway** ï¿½?Use **Antigravity** and **Codex** AI backends with **Claude Code CLI** and **Cursor IDE**.
 
-[![CI](https://github.com/fjiangming/agent-vibes/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fjiangming/agent-vibes/actions/workflows/ci.yml)
+[![CI](https://github.com/fjiangming/cursor-proxy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fjiangming/cursor-proxy/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-â‰?4-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-ï¿½?4-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com/)
 [![Fastify](https://img.shields.io/badge/Fastify-HTTP%2F2-000000?logo=fastify&logoColor=white)](https://fastify.dev/)
 
 ## Overview
 
-Agent Vibes is a proxy server that connects AI coding clients to AI backends through protocol translation.
+Cursor Proxy is a proxy server that connects AI coding clients to AI backends through protocol translation.
 
 **Clients** (front-end):
 
-- **Claude Code CLI** â€?Anthropic Messages API
-- **Cursor IDE** â€?Protocol-compatible ConnectRPC/gRPC implementation
+- **Claude Code CLI** ï¿½?Anthropic Messages API
+- **Cursor IDE** ï¿½?Protocol-compatible ConnectRPC/gRPC implementation
 
 **Backends** (back-end):
 
-- **Antigravity IDE** â€?Google Cloud Code API with protocol-compliant requests
-- **Codex CLI** â€?OpenAI-compatible API for GPT and Codex models
-- **Claude-Compatible API** â€?Anthropic-compatible `/v1/messages` with third-party keys
+- **Antigravity IDE** ï¿½?Google Cloud Code API with protocol-compliant requests
+- **Codex CLI** ï¿½?OpenAI-compatible API for GPT and Codex models
+- **Claude-Compatible API** ï¿½?Anthropic-compatible `/v1/messages` with third-party keys
 
 > **Disclaimer:** This project is for educational and research purposes only.
 >
@@ -34,21 +34,21 @@ Agent Vibes is a proxy server that connects AI coding clients to AI backends thr
 
 ```text
 + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-â”?                         Clients                            â”?
-â”?                                                            â”?
-â”? Claude Code CLI                Cursor IDE                  â”?
-â”? POST /v1/messages              POST /agent.v1.*            â”?
-â”? (Anthropic SSE)                (ConnectRPC/gRPC)           â”?
+ï¿½?                         Clients                            ï¿½?
+ï¿½?                                                            ï¿½?
+ï¿½? Claude Code CLI                Cursor IDE                  ï¿½?
+ï¿½? POST /v1/messages              POST /agent.v1.*            ï¿½?
+ï¿½? (Anthropic SSE)                (ConnectRPC/gRPC)           ï¿½?
 + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-                              â”?
-                              â–?
+                              ï¿½?
+                              ï¿½?
 + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-â”?                 Agent Vibes Proxy Server                   â”?
-â”?                                                            â”?
-â”? Gemini           â†?Antigravity IDE (Cloud Code)            â”?
-â”? Claude           â†?Claude-Compatible API / Antigravity     â”?
-â”? GPT              â†?Codex CLI / OpenAI-compatible API       â”?
-â”?                                                            â”?
+ï¿½?                 Cursor Proxy Proxy Server                   ï¿½?
+ï¿½?                                                            ï¿½?
+ï¿½? Gemini           ï¿½?Antigravity IDE (Cloud Code)            ï¿½?
+ï¿½? Claude           ï¿½?Claude-Compatible API / Antigravity     ï¿½?
+ï¿½? GPT              ï¿½?Codex CLI / OpenAI-compatible API       ï¿½?
+ï¿½?                                                            ï¿½?
 + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
 ```
 
@@ -62,11 +62,11 @@ Agent Vibes is a proxy server that connects AI coding clients to AI backends thr
 ## Compared with [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) is the closest reference project for this repo, but the focus is different.
-[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) is primarily API-first and CLI-oriented. Agent Vibes puts its main weight on
+[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) is primarily API-first and CLI-oriented. Cursor Proxy puts its main weight on
 native client compatibility for Cursor and native upstream fidelity for Antigravity.
 
 - **Cursor:** instead of stopping at OpenAI/Claude-compatible endpoints,
-  Agent Vibes implements Cursor's native ConnectRPC/gRPC agent channel
+  Cursor Proxy implements Cursor's native ConnectRPC/gRPC agent channel
   with protocol-compatible protobuf definitions for interoperability,
   and implements the streaming tool loop directly.
 - **Antigravity:** this repo's main Antigravity path is a newer
@@ -85,47 +85,47 @@ native client compatibility for Cursor and native upstream fidelity for Antigrav
 
 This is the easiest way to launch the service without manual cloning or setup.
 The script will automatically fetch the latest `dev` branch to a hidden
-`~/.agent-vibes` directory, install dependencies, and start the service.
+`~/.cursor-proxy` directory, install dependencies, and start the service.
 
-**ðŸ–¥ï¸?Windows (PowerShell):**
+**ðŸ–¥ï¿½?Windows (PowerShell):**
 
 ```powershell
-# Default installation path is C:\Users\<username>\.agent-vibes
-Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-start.ps1" | Invoke-Expression
+# Default installation path is C:\Users\<username>\.cursor-proxy
+Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.ps1" | Invoke-Expression
 
 # Custom installation path (e.g. to D:\agent-vibes)
-$env:AGENT_VIBES_DIR="D:\agent-vibes"; Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-start.ps1" | Invoke-Expression
+$env:AGENT_VIBES_DIR="D:\agent-vibes"; Invoke-RestMethod -Uri "https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.ps1" | Invoke-Expression
 ```
 
 **ðŸŽ macOS / ðŸ§ Linux:**
 
 ```bash
-# Default installation path is ~/.agent-vibes
-curl -sSL https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-start.sh | bash
+# Default installation path is ~/.cursor-proxy
+curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.sh | bash
 
 # Custom installation path (e.g. to /opt/agent-vibes)
-curl -sSL https://raw.githubusercontent.com/fjiangming/agent-vibes/dev/quick-start.sh | bash -s -- /opt/agent-vibes
+curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-start.sh | bash -s -- /opt/agent-vibes
 ```
 
 - **Stop Service**: Press `Ctrl + C` in the running terminal.
 - **Update Service**: Whether you installed using the default or custom path, simply **re-run the exact same command you used to install**.
   The script will automatically detect the existing directory, pull the latest code using `git fetch` and `git reset --hard origin/dev`, reinstall dependencies, and restart.
-- **Clean Uninstall**: Simply delete the `.agent-vibes` folder in your home
-  directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`,
-  macOS/Linux: `rm -rf ~/.agent-vibes`). There is no registry or global system pollution.
+- **Clean Uninstall**: Simply delete the `.cursor-proxy` folder in your home
+  directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`,
+  macOS/Linux: `rm -rf ~/.cursor-proxy`). There is no registry or global system pollution.
 
 ### Manual Source Installation (Advanced)
 
 **From source (all platforms):**
 
-> **Tip:** If you only need Cursor IDE support, skip this and use the [Extension install](#cursor-ide) instead â€?no source build required.
+> **Tip:** If you only need Cursor IDE support, skip this and use the [Extension install](#cursor-ide) instead ï¿½?no source build required.
 >
 > **Note:** Primary development and testing is done on macOS.
-> Linux and Windows support is implemented but not fully tested â€?
+> Linux and Windows support is implemented but not fully tested ï¿½?
 > scripts may have edge-case bugs on those platforms. PRs welcome!
 
 ```bash
-git clone https://github.com/fjiangming/agent-vibes.git
+git clone https://github.com/fjiangming/cursor-proxy.git
 cd agent-vibes
 npm install && npm run build
 npm link                          # makes `agent-vibes` available globally
@@ -145,7 +145,7 @@ This step completes the installation.
 
 ```bash
 npm rm -g agent-vibes             # remove the global command
-rm -rf ~/.agent-vibes             # clear user data (Windows users: Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes")
+rm -rf ~/.cursor-proxy             # clear user data (Windows users: Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy")
 ```
 
 ### Choose One Upstream Source
@@ -207,55 +207,55 @@ For the Cursor client side, a free account is enough. No paid Cursor plan is req
 >
 > *Tip: For rapid packaging during extension development without full backend rebuilds, you can use `npm run package:fast` or `npm run pack:fast`.*
 
-If you haven't made custom modifications, you can use one-click download + install from [GitHub Releases](https://github.com/fjiangming/agent-vibes/releases):
+If you haven't made custom modifications, you can use one-click download + install from [GitHub Releases](https://github.com/fjiangming/cursor-proxy/releases):
 
 #### macOS Apple Silicon
 
 ```bash
 # Download
-curl -L -o agent-vibes-darwin-arm64-0.1.0.vsix https://github.com/fjiangming/agent-vibes/releases/download/v0.1.0/agent-vibes-darwin-arm64-0.1.0.vsix
+curl -L -o cursor-proxy-darwin-arm64-0.1.0.vsix https://github.com/fjiangming/cursor-proxy/releases/download/v0.1.0/cursor-proxy-darwin-arm64-0.1.0.vsix
 
 # Install
-cursor --install-extension agent-vibes-darwin-arm64-0.1.0.vsix --force
+cursor --install-extension cursor-proxy-darwin-arm64-0.1.0.vsix --force
 ```
 
 #### macOS Intel
 
 ```bash
 # Download
-curl -L -o agent-vibes-darwin-x64-0.1.0.vsix https://github.com/fjiangming/agent-vibes/releases/download/v0.1.0/agent-vibes-darwin-x64-0.1.0.vsix
+curl -L -o cursor-proxy-darwin-x64-0.1.0.vsix https://github.com/fjiangming/cursor-proxy/releases/download/v0.1.0/cursor-proxy-darwin-x64-0.1.0.vsix
 
 # Install
-cursor --install-extension agent-vibes-darwin-x64-0.1.0.vsix --force
+cursor --install-extension cursor-proxy-darwin-x64-0.1.0.vsix --force
 ```
 
 #### Linux x64
 
 ```bash
 # Download
-curl -L -o agent-vibes-linux-x64-0.1.0.vsix https://github.com/fjiangming/agent-vibes/releases/download/v0.1.0/agent-vibes-linux-x64-0.1.0.vsix
+curl -L -o cursor-proxy-linux-x64-0.1.0.vsix https://github.com/fjiangming/cursor-proxy/releases/download/v0.1.0/cursor-proxy-linux-x64-0.1.0.vsix
 
 # Install
-cursor --install-extension agent-vibes-linux-x64-0.1.0.vsix --force
+cursor --install-extension cursor-proxy-linux-x64-0.1.0.vsix --force
 ```
 
 #### Windows x64
 
 ```powershell
 # Download
-Invoke-WebRequest -Uri "https://github.com/fjiangming/agent-vibes/releases/download/v0.1.0/agent-vibes-win32-x64-0.1.0.vsix" -OutFile "agent-vibes-win32-x64-0.1.0.vsix"
+Invoke-WebRequest -Uri "https://github.com/fjiangming/cursor-proxy/releases/download/v0.1.0/cursor-proxy-win32-x64-0.1.0.vsix" -OutFile "cursor-proxy-win32-x64-0.1.0.vsix"
 
 # Install
-cursor --install-extension agent-vibes-win32-x64-0.1.0.vsix --force
+cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
 ```
 
 Restart Cursor after installation.
 The extension auto-starts the proxy server and guides you through first-run setup
-(SSL certificates, account sync, network forwarding â€?all from the Command Palette).
+(SSL certificates, account sync, network forwarding ï¿½?all from the Command Palette).
 
 **Option B: CLI**
 
-Cursor requires HTTPS interception â€?one-time setup:
+Cursor requires HTTPS interception ï¿½?one-time setup:
 
 ```bash
 # 1. Add DNS redirect to hosts file
@@ -294,7 +294,7 @@ Use for Antigravity / Google Cloud Code access.
 >   which often conflict with the simple, direct instructions you send via Cursor.
 > - **Context Window Bloat / Amnesia:** Consuming ~10k tokens right off the bat severely limits
 >   your effective context window, causing the model to forget earlier parts of the conversation much sooner than usual.
-> - **Recommendation:** If you desire pure, unadulterated model intelligence without forced "Agent Vibes" UI bloat,
+> - **Recommendation:** If you desire pure, unadulterated model intelligence without forced "Cursor Proxy" UI bloat,
 >   it is highly recommended to use the **Codex (GPT)** or **Claude API** routing paths instead.
 >   The native Antigravity path should only be used if you explicitly want the heavy-handed agentic AI pre-prompts.
 
@@ -307,7 +307,7 @@ agent-vibes sync --tools
 
 Behavior:
 
-- Credentials are synced into `~/.agent-vibes/data/antigravity-accounts.json`.
+- Credentials are synced into `~/.cursor-proxy/data/antigravity-accounts.json`.
 - Supports multi-account rotation.
 - **Claude model routing:** When Claude Code CLI routes through the Google backend,
   only **Opus** models use the Claude-through-Google (Cloud Code) path.
@@ -325,7 +325,7 @@ Behavior:
 }
 ```
 
-Set `"quotaFallbackModel"` to the desired fallback model ID, or remove the field entirely to disable (default: disabled â€?returns 429 as before).
+Set `"quotaFallbackModel"` to the desired fallback model ID, or remove the field entirely to disable (default: disabled ï¿½?returns 429 as before).
 
 ### 2. GPT
 
@@ -340,7 +340,7 @@ codex --login
 agent-vibes sync --codex
 ```
 
-- OpenAI-compatible file: `~/.agent-vibes/data/openai-compat-accounts.json`
+- OpenAI-compatible file: `~/.cursor-proxy/data/openai-compat-accounts.json`
 
 ```json
 {
@@ -375,9 +375,9 @@ Use for third-party Claude-compatible APIs.
 
 Configuration:
 
-- `agent-vibes sync --claude` reads `~/.claude/settings.json` and writes or updates a managed `claude-code-sync` entry in `~/.agent-vibes/data/claude-api-accounts.json`.
+- `agent-vibes sync --claude` reads `~/.claude/settings.json` and writes or updates a managed `claude-code-sync` entry in `~/.cursor-proxy/data/claude-api-accounts.json`.
   The managed entry mirrors the current source settings; if the source no longer declares explicit model IDs, stale managed `models` are removed so dynamic discovery can take effect.
-- Or edit `~/.agent-vibes/data/claude-api-accounts.json` manually:
+- Or edit `~/.cursor-proxy/data/claude-api-accounts.json` manually:
 
 ```json
 {
@@ -428,11 +428,11 @@ Behavior:
 - If `models` is configured, the explicit mappings take precedence and automatic discovery is skipped for that account.
 - `stripThinking=true` removes Anthropic thinking fields before forwarding for providers that only support the base Claude model name.
 - `sanitizeForProxy=true` enables pre-emptive payload sanitization for proxy backends
-  (e.g. CLIProxyAPI â†?Vertex AI / Antigravity). When enabled, all tool `input_schema`
+  (e.g. CLIProxyAPI ï¿½?Vertex AI / Antigravity). When enabled, all tool `input_schema`
   definitions are cleaned before forwarding:
   - Strips `$schema`, `additionalProperties`, `$ref`/`$defs`, `default`, `format`, and other JSON Schema keywords unsupported by the Gemini/Vertex AI API.
   - Uses a strict whitelist (`type`, `description`, `properties`, `required`, `items`, `enum`, `title`).
-  - Expands `$ref`/`$defs` inline, resolves `anyOf`/`oneOf`/`allOf` unions, normalises type arrays (`["string","null"]` â†?`"string"` with `(nullable)`).
+  - Expands `$ref`/`$defs` inline, resolves `anyOf`/`oneOf`/`allOf` unions, normalises type arrays (`["string","null"]` ï¿½?`"string"` with `(nullable)`).
   - Fills empty object schemas with a placeholder property and aligns `required` with available `properties`.
   - Migrates unsupported constraints (e.g. `minLength`, `pattern`) into the description text.
   - Filters out `web_search` type tools (handled natively by the proxy).
@@ -447,59 +447,59 @@ Behavior:
 ```text
 agent-vibes/
 â”œâ”€â”€ bin/
-â”?  â””â”€â”€ agent-vibes                            # CLI entry point
+ï¿½?  â””â”€â”€ agent-vibes                            # CLI entry point
 â”œâ”€â”€ apps/
-â”?  â””â”€â”€ protocol-bridge/                         # Main proxy server (NestJS + Fastify)
-â”?      â”œâ”€â”€ src/
-â”?      â”?  â”œâ”€â”€ main.ts                        # App bootstrap (Fastify adapter, CORS, Swagger)
-â”?      â”?  â”œâ”€â”€ app.module.ts                  # NestJS root module
-â”?      â”?  â”œâ”€â”€ health.controller.ts           # Health check + pool status
-â”?      â”?  â”?
-â”?      â”?  â”œâ”€â”€ protocol/                      # â†?Protocol adapters
-â”?      â”?  â”?  â”œâ”€â”€ cursor/                    #   CursorModule â€?Cursor IDE (ConnectRPC)
-â”?      â”?  â”?  â”?  â”œâ”€â”€ cursor.module.ts
-â”?      â”?  â”?  â”?  â”œâ”€â”€ cursor-adapter.controller.ts
-â”?      â”?  â”?  â”?  â”œâ”€â”€ cursor-connect-stream.service.ts
-â”?      â”?  â”?  â”?  â”œâ”€â”€ cursor-grpc.service.ts
-â”?      â”?  â”?  â”?  â””â”€â”€ ...                    #   (auth, parser, session, etc.)
-â”?      â”?  â”?  â””â”€â”€ anthropic/                 #   AnthropicModule â€?Claude Code CLI
-â”?      â”?  â”?      â”œâ”€â”€ anthropic.module.ts
-â”?      â”?  â”?      â”œâ”€â”€ messages.controller.ts  #   POST /v1/messages
-â”?      â”?  â”?      â”œâ”€â”€ messages.service.ts
-â”?      â”?  â”?      â””â”€â”€ dto/                   #   Request DTOs
-â”?      â”?  â”?
-â”?      â”?  â”œâ”€â”€ context/                       # â†?Conversation context
-â”?      â”?  â”?  â”œâ”€â”€ history.module.ts          #   HistoryModule
-â”?      â”?  â”?  â”œâ”€â”€ tokenizer.module.ts        #   TokenizerModule
-â”?      â”?  â”?  â”œâ”€â”€ conversation-truncator.service.ts
-â”?      â”?  â”?  â”œâ”€â”€ tokenizer.service.ts
-â”?      â”?  â”?  â””â”€â”€ ...                        #   (summary, token counting, tool integrity)
-â”?      â”?  â”?
-â”?      â”?  â”œâ”€â”€ llm/                           # â†?LLM layer (Routing + Providers)
-â”?      â”?  â”?  â”œâ”€â”€ model.module.ts            #   ModelModule
-â”?      â”?  â”?  â”œâ”€â”€ model-registry.ts          #   Model alias â†?backend ID mapping
-â”?      â”?  â”?  â”œâ”€â”€ model-router.service.ts    #   Multi-backend dispatcher
-â”?      â”?  â”?  â”œâ”€â”€ claude-api/                #   ClaudeApiModule â€?Claude-compatible key pool
-â”?      â”?  â”?  â”œâ”€â”€ google/                    #   GoogleModule â€?Cloud Code API
-â”?      â”?  â”?  â”œâ”€â”€ codex/                     #   CodexModule â€?OpenAI Codex reverse proxy
-â”?      â”?  â”?  â”œâ”€â”€ native/                    #   NativeModule â€?Process pool workers
-â”?      â”?  â”?  â””â”€â”€ websearch/                 #   WebsearchModule â€?Web search
-â”?      â”?  â”?
-â”?      â”?  â”œâ”€â”€ shared/                        # Infrastructure (bootstrap, guards, env, types)
-â”?      â”?  â”?  â”œâ”€â”€ content-type-parsers.ts    #   gRPC/ConnectRPC body parsers
-â”?      â”?  â”?  â”œâ”€â”€ request-hooks.ts           #   Request logging hooks
-â”?      â”?  â”?  â”œâ”€â”€ env.validation.ts          #   Environment variable validation
-â”?      â”?  â”?  â”œâ”€â”€ api-key.guard.ts           #   API key authentication guard
-â”?      â”?  â”?  â””â”€â”€ anthropic.ts, cloud-code.ts #  Shared TypeScript types
-â”?      â”?  â”?
-â”?      â”?  â””â”€â”€ gen/                           # Auto-generated protobuf (DO NOT edit)
-â”?      â”?
-â”?      â”œâ”€â”€ proto/                             # Protobuf definitions (protocol-compatible, local only)
-â”?      â””â”€â”€ data/                              # Per-backend credential pools (JSON)
+ï¿½?  â””â”€â”€ protocol-bridge/                         # Main proxy server (NestJS + Fastify)
+ï¿½?      â”œâ”€â”€ src/
+ï¿½?      ï¿½?  â”œâ”€â”€ main.ts                        # App bootstrap (Fastify adapter, CORS, Swagger)
+ï¿½?      ï¿½?  â”œâ”€â”€ app.module.ts                  # NestJS root module
+ï¿½?      ï¿½?  â”œâ”€â”€ health.controller.ts           # Health check + pool status
+ï¿½?      ï¿½?  ï¿½?
+ï¿½?      ï¿½?  â”œâ”€â”€ protocol/                      # ï¿½?Protocol adapters
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ cursor/                    #   CursorModule ï¿½?Cursor IDE (ConnectRPC)
+ï¿½?      ï¿½?  ï¿½?  ï¿½?  â”œâ”€â”€ cursor.module.ts
+ï¿½?      ï¿½?  ï¿½?  ï¿½?  â”œâ”€â”€ cursor-adapter.controller.ts
+ï¿½?      ï¿½?  ï¿½?  ï¿½?  â”œâ”€â”€ cursor-connect-stream.service.ts
+ï¿½?      ï¿½?  ï¿½?  ï¿½?  â”œâ”€â”€ cursor-grpc.service.ts
+ï¿½?      ï¿½?  ï¿½?  ï¿½?  â””â”€â”€ ...                    #   (auth, parser, session, etc.)
+ï¿½?      ï¿½?  ï¿½?  â””â”€â”€ anthropic/                 #   AnthropicModule ï¿½?Claude Code CLI
+ï¿½?      ï¿½?  ï¿½?      â”œâ”€â”€ anthropic.module.ts
+ï¿½?      ï¿½?  ï¿½?      â”œâ”€â”€ messages.controller.ts  #   POST /v1/messages
+ï¿½?      ï¿½?  ï¿½?      â”œâ”€â”€ messages.service.ts
+ï¿½?      ï¿½?  ï¿½?      â””â”€â”€ dto/                   #   Request DTOs
+ï¿½?      ï¿½?  ï¿½?
+ï¿½?      ï¿½?  â”œâ”€â”€ context/                       # ï¿½?Conversation context
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ history.module.ts          #   HistoryModule
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ tokenizer.module.ts        #   TokenizerModule
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ conversation-truncator.service.ts
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ tokenizer.service.ts
+ï¿½?      ï¿½?  ï¿½?  â””â”€â”€ ...                        #   (summary, token counting, tool integrity)
+ï¿½?      ï¿½?  ï¿½?
+ï¿½?      ï¿½?  â”œâ”€â”€ llm/                           # ï¿½?LLM layer (Routing + Providers)
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ model.module.ts            #   ModelModule
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ model-registry.ts          #   Model alias ï¿½?backend ID mapping
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ model-router.service.ts    #   Multi-backend dispatcher
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ claude-api/                #   ClaudeApiModule ï¿½?Claude-compatible key pool
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ google/                    #   GoogleModule ï¿½?Cloud Code API
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ codex/                     #   CodexModule ï¿½?OpenAI Codex reverse proxy
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ native/                    #   NativeModule ï¿½?Process pool workers
+ï¿½?      ï¿½?  ï¿½?  â””â”€â”€ websearch/                 #   WebsearchModule ï¿½?Web search
+ï¿½?      ï¿½?  ï¿½?
+ï¿½?      ï¿½?  â”œâ”€â”€ shared/                        # Infrastructure (bootstrap, guards, env, types)
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ content-type-parsers.ts    #   gRPC/ConnectRPC body parsers
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ request-hooks.ts           #   Request logging hooks
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ env.validation.ts          #   Environment variable validation
+ï¿½?      ï¿½?  ï¿½?  â”œâ”€â”€ api-key.guard.ts           #   API key authentication guard
+ï¿½?      ï¿½?  ï¿½?  â””â”€â”€ anthropic.ts, cloud-code.ts #  Shared TypeScript types
+ï¿½?      ï¿½?  ï¿½?
+ï¿½?      ï¿½?  â””â”€â”€ gen/                           # Auto-generated protobuf (DO NOT edit)
+ï¿½?      ï¿½?
+ï¿½?      â”œâ”€â”€ proto/                             # Protobuf definitions (protocol-compatible, local only)
+ï¿½?      â””â”€â”€ data/                              # Per-backend credential pools (JSON)
 â”œâ”€â”€ packages/
-â”?  â”œâ”€â”€ eslint-config/                         # Shared ESLint config
-â”?  â”œâ”€â”€ prettier-config/                       # Shared Prettier config
-â”?  â””â”€â”€ typescript-config/                     # Shared TypeScript base config
+ï¿½?  â”œâ”€â”€ eslint-config/                         # Shared ESLint config
+ï¿½?  â”œâ”€â”€ prettier-config/                       # Shared Prettier config
+ï¿½?  â””â”€â”€ typescript-config/                     # Shared TypeScript base config
 â””â”€â”€ scripts/
     â”œâ”€â”€ lib/                                   # Shared cross-platform utilities
     â”œâ”€â”€ accounts/                              # Account credential sync helpers
@@ -524,7 +524,7 @@ agent-vibes/
 
 | Component   | Technology                                         |
 | ----------- | -------------------------------------------------- |
-| Runtime     | Node.js â‰?24                                       |
+| Runtime     | Node.js ï¿½?24                                       |
 | Framework   | NestJS 11 + Fastify (HTTP/2 + HTTP/1.1)            |
 | Language    | TypeScript (ES2021, CommonJS)                      |
 | Protobuf    | `@bufbuild/protobuf` v2 + `@connectrpc/connect` v2 |
@@ -539,14 +539,14 @@ agent-vibes/
 
 ## CI/CD
 
-- **`ci.yml`** â€?Quality gate on push/PR
+- **`ci.yml`** ï¿½?Quality gate on push/PR
   - Runs `lint`, `types`, `build`, `test`
-- **`deploy-proxy.yml`** â€?Auto-deploy on push to `main` (only `apps/protocol-bridge/**` changes)
-  - Build â†?SCP to server â†?restart systemd service
+- **`deploy-proxy.yml`** ï¿½?Auto-deploy on push to `main` (only `apps/protocol-bridge/**` changes)
+  - Build ï¿½?SCP to server ï¿½?restart systemd service
   - Production uses Let's Encrypt SSL for HTTP/2
-- **`claude.yml`** â€?Claude Code automation
-  - Issue handling: `claude` label â†?auto-implement â†?create PR to `dev`
-  - PR review: auto-review â†?merge after approval
+- **`claude.yml`** ï¿½?Claude Code automation
+  - Issue handling: `claude` label ï¿½?auto-implement ï¿½?create PR to `dev`
+  - PR review: auto-review ï¿½?merge after approval
   - Interactive: `@claude` or `@c` in comments
 
 ### Branch Strategy
@@ -559,13 +559,13 @@ agent-vibes/
 
 ## Community
 
-Join the discussion and share your thoughts about Agent Vibes on [LINUX DO](https://linux.do/t/topic/1814066), or feel free to report bugs and feedback on [GitHub Issues](https://github.com/fjiangming/agent-vibes/issues).
+Join the discussion and share your thoughts about Cursor Proxy on [LINUX DO](https://linux.do/t/topic/1814066), or feel free to report bugs and feedback on [GitHub Issues](https://github.com/fjiangming/cursor-proxy/issues).
 
 ## Contributing
 
-Found a bug or have an idea? Use our [issue templates](https://github.com/fjiangming/agent-vibes/issues/new/choose) to report bugs or request features.
+Found a bug or have an idea? Use our [issue templates](https://github.com/fjiangming/cursor-proxy/issues/new/choose) to report bugs or request features.
 
-> **Tip:** Run `agent-vibes issues` (or `npm run issues`) to auto-collect diagnostics â€?the report is copied to your clipboard, ready to paste into the bug report template.
+> **Tip:** Run `agent-vibes issues` (or `npm run issues`) to auto-collect diagnostics ï¿½?the report is copied to your clipboard, ready to paste into the bug report template.
 
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening PRs.
 

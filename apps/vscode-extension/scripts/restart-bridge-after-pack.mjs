@@ -89,16 +89,16 @@ function loadCursorSettings() {
 
 function resolveConfig() {
   const settings = loadCursorSettings()
-  const defaultDataDir = path.join(os.homedir(), ".agent-vibes")
+  const defaultDataDir = path.join(os.homedir(), ".cursor-proxy")
   const dataDir =
-    typeof settings["agentVibes.dataDir"] === "string" &&
-    settings["agentVibes.dataDir"].trim()
-      ? path.resolve(settings["agentVibes.dataDir"].trim())
+    typeof settings["cursorProxy.dataDir"] === "string" &&
+    settings["cursorProxy.dataDir"].trim()
+      ? path.resolve(settings["cursorProxy.dataDir"].trim())
       : defaultDataDir
   const port =
-    typeof settings["agentVibes.port"] === "number" &&
-    Number.isFinite(settings["agentVibes.port"])
-      ? settings["agentVibes.port"]
+    typeof settings["cursorProxy.port"] === "number" &&
+    Number.isFinite(settings["cursorProxy.port"])
+      ? settings["cursorProxy.port"]
       : 2026
 
   const env = {
@@ -110,16 +110,16 @@ function resolveConfig() {
 
   const accountOverrides = [
     [
-      "agentVibes.antigravityAccountsPath",
+      "cursorProxy.antigravityAccountsPath",
       "AGENT_VIBES_ANTIGRAVITY_ACCOUNTS_PATH",
     ],
     [
-      "agentVibes.claudeApiAccountsPath",
+      "cursorProxy.claudeApiAccountsPath",
       "AGENT_VIBES_CLAUDE_API_ACCOUNTS_PATH",
     ],
-    ["agentVibes.codexAccountsPath", "AGENT_VIBES_CODEX_ACCOUNTS_PATH"],
+    ["cursorProxy.codexAccountsPath", "AGENT_VIBES_CODEX_ACCOUNTS_PATH"],
     [
-      "agentVibes.openaiCompatAccountsPath",
+      "cursorProxy.openaiCompatAccountsPath",
       "AGENT_VIBES_OPENAI_COMPAT_ACCOUNTS_PATH",
     ],
   ]
@@ -131,7 +131,7 @@ function resolveConfig() {
     }
   }
 
-  if (settings["agentVibes.debugMode"] === true) {
+  if (settings["cursorProxy.debugMode"] === true) {
     env.LOG_DEBUG = "true"
   }
 
@@ -351,7 +351,7 @@ async function main() {
 
   console.warn(
     `[restart:bridge] Bridge restart did not pass health check on port ${port}. ` +
-      `Check ${LOG_FILE} or run "Agent Vibes: Restart Server" in Cursor.`
+      `Check ${LOG_FILE} or run "Cursor Proxy: Restart Server" in Cursor.`
   )
 }
 
