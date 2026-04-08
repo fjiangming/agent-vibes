@@ -539,9 +539,11 @@ agent-vibes/
 
 ## CI/CD
 
-- **`ci.yml`** �?Quality gate on push/PR
-  - Runs `lint`, `types`, `build`, `test`
-- **`deploy-proxy.yml`** �?Auto-deploy on push to `main` (only `apps/protocol-bridge/**` changes)
+- **`ci.yml`** (Triggered on pushes to `dev` or `main`)
+  - A strict quality gate that runs `lint`, `types`, `build`, and `test` to ensure code health. **This pipeline does NOT generate downloadable release binaries or VSCode extensions.**
+- **`release.yml`** (Triggered **ONLY** when a `v*` tag like `v0.2.3` is pushed)
+  - The actual build and release factory. It compiles the native proxy binaries across different systems (macOS, Linux, Windows), bundles them securely into the VSCode extension shell (`.vsix`), and automatically publishes a new GitHub Release page.
+- **`deploy-proxy.yml`** Auto-deploy on push to `main` (only `apps/protocol-bridge/**` changes)
   - Build �?SCP to server �?restart systemd service
   - Production uses Let's Encrypt SSL for HTTP/2
 - **`claude.yml`** �?Claude Code automation

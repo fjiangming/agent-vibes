@@ -523,9 +523,11 @@ agent-vibes/
 
 ## CI/CD
 
-- **`ci.yml`** �?push / PR 时的质量门禁
-  - 运行 `lint`、`types`、`build`、`test`
-- **`deploy-proxy.yml`** �?push �?`main` 时自动部署（仅在 `apps/protocol-bridge/**` 变更时触发）
+- **`ci.yml`**（当代码推送至 `dev` 或 `main` 时触发）
+  - 这是一个纯粹的代码健康与质量门禁。它负责运行 `lint`、`types`、`build` 和 `test` 确保没有语法或类型错误。**该流水线绝不会发布任何插件安装包。**
+- **`release.yml`**（**仅**在推送例如 `v0.2.3` 等 `v` 开头的 Tag 时严格触发）
+  - 这是真正的打包发行车间！它会在全平台（Windows、macOS、Linux）同时进行底层核心的静态编译构建，并将最终的二进制文件封装进 VSCode 插件外壳（`.vsix`），最后在 GitHub Releases 页面自动发布。
+- **`deploy-proxy.yml`** 自动部署（仅当 `apps/protocol-bridge/**` 变更推送到 `main` 时触发）
   - Build �?SCP 上传到服务器 �?重启 systemd 服务
   - 生产环境使用 Let's Encrypt SSL 以支�?HTTP/2
 - **`claude.yml`** �?Claude Code 自动�?
