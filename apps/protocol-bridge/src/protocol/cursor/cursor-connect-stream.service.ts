@@ -209,6 +209,8 @@ type InlineWebToolFamily = "web_search" | "web_fetch"
 
 type DeferredToolFamily =
   | InlineWebToolFamily
+  | "read_url_content"
+  | "view_content_chunk"
   | "fetch"
   | "record_screen"
   | "computer_use"
@@ -299,7 +301,21 @@ interface HandleToolResultOptions {
 interface ExecDispatchTarget {
   toolName: string
   input: Record<string, unknown>
-  toolFamilyHint?: "mcp"
+  toolFamilyHint?: "mcp" | "web_fetch"
+}
+
+interface CanonicalToolInvocation {
+  toolName: string
+  input: Record<string, unknown>
+}
+
+interface LegacyWebDocument {
+  id: string
+  url: string
+  title: string
+  contentType: string
+  chunks: string[]
+  createdAt: number
 }
 
 interface ExecDispatchResolution {
@@ -418,6 +434,12 @@ export class CursorConnectStreamService {
   private readonly LARGE_TOOL_RESULT_HEAD_LINES = 220
   private readonly LARGE_TOOL_RESULT_TAIL_LINES = 120
   private readonly LARGE_TOOL_RESULT_SAMPLE_MAX_CHARS = 24_000
+  private readonly LEGACY_WEB_DOCUMENT_CHUNK_SIZE = 4_000
+  private readonly MAX_LEGACY_WEB_DOCUMENTS_PER_CONVERSATION = 12
+  private readonly legacyWebDocumentsByConversation = new Map<
+    string,
+    Map<string, LegacyWebDocument>
+  >()
   private modelCallIdCounter = 0
 
   /**
@@ -2628,11 +2650,158 @@ ${raw}
     return undefined
   }
 
+  private normalizeLegacyWebDocumentToolName(
+    toolName: string
+  ): "read_url_content" | "view_content_chunk" | undefined {
+    const snake = toolName
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+    const compact = toolName.toLowerCase().replace(/[^a-z0-9]+/g, "")
+
+    if (
+      snake.includes("read_url_content") ||
+      compact.includes("readurlcontent")
+    ) {
+      return "read_url_content"
+    }
+    if (
+      snake.includes("view_content_chunk") ||
+      compact.includes("viewcontentchunk")
+    ) {
+      return "view_content_chunk"
+    }
+    return undefined
+  }
+
+  private hasMeaningfulInlineFetchHeaders(
+    input: Record<string, unknown>
+  ): boolean {
+    const candidates = [
+      input.headers,
+      input.header,
+      input.requestHeaders,
+      input.request_headers,
+    ]
+
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      if (typeof candidate === "string" && candidate.trim().length > 0) {
+        return true
+      }
+      if (Array.isArray(candidate) && candidate.length > 0) {
+        return true
+      }
+      if (
+        typeof candidate === "object" &&
+        candidate !== null &&
+        Object.keys(candidate as Record<string, unknown>).length > 0
+      ) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private hasMeaningfulInlineFetchBody(
+    input: Record<string, unknown>
+  ): boolean {
+    const bodyRaw = input.body ?? input.data ?? input.payload
+    if (bodyRaw === undefined || bodyRaw === null) return false
+    if (typeof bodyRaw === "string") return bodyRaw.trim().length > 0
+    if (typeof bodyRaw === "number" || typeof bodyRaw === "boolean") {
+      return true
+    }
+    if (typeof bodyRaw === "bigint") return true
+    if (Array.isArray(bodyRaw)) return bodyRaw.length > 0
+    if (Buffer.isBuffer(bodyRaw)) return bodyRaw.length > 0
+    if (typeof bodyRaw === "object") {
+      return Object.keys(bodyRaw as Record<string, unknown>).length > 0
+    }
+    return false
+  }
+
+  private shouldCanonicalizeFetchAsWebFetch(
+    input: Record<string, unknown>
+  ): boolean {
+    const rawUrl =
+      this.pickFirstString(input, [
+        "url",
+        "Url",
+        "document_id",
+        "documentId",
+      ]) || ""
+    if (!rawUrl) return false
+
+    let parsed: URL
+    try {
+      parsed = new URL(rawUrl)
+    } catch {
+      return false
+    }
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false
+    }
+
+    const method =
+      (
+        this.pickFirstString(input, ["method", "httpMethod", "http_method"]) ||
+        "GET"
+      )
+        .trim()
+        .toUpperCase() || "GET"
+
+    if (method !== "GET") return false
+    if (this.hasMeaningfulInlineFetchHeaders(input)) return false
+    if (this.hasMeaningfulInlineFetchBody(input)) return false
+
+    return true
+  }
+
+  private canonicalizeToolInvocation(
+    toolName: string,
+    input: Record<string, unknown>
+  ): CanonicalToolInvocation {
+    const family = this.normalizeDeferredToolFamily(toolName)
+    if (family === "fetch" && this.shouldCanonicalizeFetchAsWebFetch(input)) {
+      return {
+        toolName: "web_fetch",
+        input,
+      }
+    }
+
+    if (family === "exa_search") {
+      return {
+        toolName: "web_search",
+        input: {
+          ...input,
+          query:
+            this.pickFirstString(input, [
+              "query",
+              "searchTerm",
+              "search_term",
+            ]) || "",
+        },
+      }
+    }
+
+    return {
+      toolName,
+      input,
+    }
+  }
+
   private normalizeDeferredToolFamily(
     toolName: string
   ): DeferredToolFamily | undefined {
     const webFamily = this.normalizeInlineWebToolFamily(toolName)
     if (webFamily) return webFamily
+
+    const legacyWebDocumentFamily =
+      this.normalizeLegacyWebDocumentToolName(toolName)
+    if (legacyWebDocumentFamily) return legacyWebDocumentFamily
 
     const definitionKey = resolveCursorToolDefinitionKey(toolName)
     if (definitionKey) {
@@ -3664,6 +3833,201 @@ ${raw}
       contentType,
       title,
       content: text.trim(),
+    }
+  }
+
+  private splitLegacyWebDocumentIntoChunks(content: string): string[] {
+    const normalized = content.trim()
+    if (!normalized) return [""]
+
+    const chunkSize = Math.max(1, this.LEGACY_WEB_DOCUMENT_CHUNK_SIZE)
+    const chunks: string[] = []
+    for (let cursor = 0; cursor < normalized.length; cursor += chunkSize) {
+      chunks.push(normalized.slice(cursor, cursor + chunkSize).trim())
+    }
+
+    return chunks.filter((chunk) => chunk.length > 0)
+  }
+
+  private storeLegacyWebDocument(
+    conversationId: string,
+    doc: {
+      url: string
+      title: string
+      contentType: string
+      content: string
+    }
+  ): LegacyWebDocument {
+    const chunks = this.splitLegacyWebDocumentIntoChunks(doc.content)
+    const storedDoc: LegacyWebDocument = {
+      id: `doc_${crypto.randomUUID()}`,
+      url: doc.url,
+      title: doc.title,
+      contentType: doc.contentType,
+      chunks: chunks.length > 0 ? chunks : [""],
+      createdAt: Date.now(),
+    }
+
+    let conversationDocs =
+      this.legacyWebDocumentsByConversation.get(conversationId)
+    if (!conversationDocs) {
+      conversationDocs = new Map<string, LegacyWebDocument>()
+      this.legacyWebDocumentsByConversation.set(
+        conversationId,
+        conversationDocs
+      )
+    }
+
+    conversationDocs.set(storedDoc.id, storedDoc)
+    while (
+      conversationDocs.size > this.MAX_LEGACY_WEB_DOCUMENTS_PER_CONVERSATION
+    ) {
+      const oldestDocumentId = conversationDocs.keys().next().value
+      if (!oldestDocumentId) break
+      conversationDocs.delete(oldestDocumentId)
+    }
+
+    return storedDoc
+  }
+
+  private getLegacyWebDocument(
+    conversationId: string,
+    documentId: string
+  ): LegacyWebDocument | undefined {
+    return this.legacyWebDocumentsByConversation
+      .get(conversationId)
+      ?.get(documentId)
+  }
+
+  private async executeInlineReadUrlContent(
+    conversationId: string,
+    input: Record<string, unknown>
+  ): Promise<{
+    content: string
+    state: { status: ToolResultStatus; message?: string }
+  }> {
+    const url = this.pickFirstString(input, ["url", "Url"]) || ""
+    if (!url) {
+      return {
+        content: "[read_url_content error] Missing required Url parameter",
+        state: { status: "error", message: "missing Url" },
+      }
+    }
+
+    try {
+      const doc = await this.fetchUrlDocument(url)
+      const storedDoc = this.storeLegacyWebDocument(conversationId, doc)
+      const firstChunk = storedDoc.chunks[0] || "[empty document]"
+      const totalChunks = storedDoc.chunks.length
+
+      input.url = doc.url
+      input.Url = doc.url
+      input.document_id = storedDoc.id
+      input.documentId = storedDoc.id
+      input.chunk_count = totalChunks
+      input.chunkCount = totalChunks
+
+      const lines = [
+        "[read_url_content success]",
+        `DocumentId: ${storedDoc.id}`,
+        `URL: ${doc.url}`,
+        `Title: ${doc.title || "(unknown)"}`,
+        `Content-Type: ${doc.contentType || "unknown"}`,
+        `Chunk: 1/${totalChunks}`,
+      ]
+
+      if (totalChunks > 1) {
+        lines.push(
+          `Use view_content_chunk with document_id="${storedDoc.id}" and position=2..${totalChunks} to continue reading. Positions are 1-based; position=0 also returns the first chunk.`
+        )
+      }
+
+      lines.push("", firstChunk)
+
+      return {
+        content: lines.join("\n"),
+        state: { status: "success" },
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return {
+        content: `[read_url_content error] ${message}`,
+        state: { status: "error", message },
+      }
+    }
+  }
+
+  private executeInlineViewContentChunk(
+    conversationId: string,
+    input: Record<string, unknown>
+  ): {
+    content: string
+    state: { status: ToolResultStatus; message?: string }
+  } {
+    const documentId =
+      this.pickFirstString(input, ["document_id", "documentId"]) || ""
+    if (!documentId) {
+      return {
+        content:
+          "[view_content_chunk error] Missing required document_id parameter",
+        state: { status: "error", message: "missing document_id" },
+      }
+    }
+
+    const requestedPosition = this.pickFirstNumber(input, [
+      "position",
+      "chunk_position",
+      "chunkPosition",
+    ])
+    if (requestedPosition === undefined) {
+      return {
+        content:
+          "[view_content_chunk error] Missing required position parameter",
+        state: { status: "error", message: "missing position" },
+      }
+    }
+
+    const storedDoc = this.getLegacyWebDocument(conversationId, documentId)
+    if (!storedDoc) {
+      return {
+        content:
+          `[view_content_chunk error] Unknown DocumentId: ${documentId}. ` +
+          "Call read_url_content first in the same conversation.",
+        state: { status: "error", message: "unknown document_id" },
+      }
+    }
+
+    const chunkIndex = requestedPosition <= 0 ? 0 : requestedPosition - 1
+    if (chunkIndex < 0 || chunkIndex >= storedDoc.chunks.length) {
+      return {
+        content:
+          `[view_content_chunk error] position ${requestedPosition} is out of range. ` +
+          `Available positions: 1-${storedDoc.chunks.length} (or 0 for the first chunk).`,
+        state: { status: "error", message: "position out of range" },
+      }
+    }
+
+    const chunkNumber = chunkIndex + 1
+    const lines = [
+      "[view_content_chunk success]",
+      `DocumentId: ${storedDoc.id}`,
+      `URL: ${storedDoc.url}`,
+      `Title: ${storedDoc.title || "(unknown)"}`,
+      `Chunk: ${chunkNumber}/${storedDoc.chunks.length}`,
+    ]
+    if (chunkNumber < storedDoc.chunks.length) {
+      lines.push(`Next chunk position: ${chunkNumber + 1}`)
+    }
+    lines.push("", storedDoc.chunks[chunkIndex] || "[empty document]")
+
+    input.document_id = storedDoc.id
+    input.documentId = storedDoc.id
+    input.position = chunkNumber
+    input.chunkIndex = chunkIndex
+
+    return {
+      content: lines.join("\n"),
+      state: { status: "success" },
     }
   }
 
@@ -4792,6 +5156,8 @@ ${raw}
     const DEFERRED_TOOL_MAP: Record<string, DeferredToolFamily> = {
       web_search: "web_search",
       web_fetch: "web_fetch",
+      read_url_content: "read_url_content",
+      view_content_chunk: "view_content_chunk",
       fetch: "fetch",
       read_file: "read_semsearch_files",
       list_dir: "file_search",
@@ -5760,6 +6126,12 @@ ${raw}
     if (family === "web_search" || family === "web_fetch") {
       return this.executeInlineWebTool(conversationId, toolName, input)
     }
+    if (family === "read_url_content") {
+      return this.executeInlineReadUrlContent(conversationId, input)
+    }
+    if (family === "view_content_chunk") {
+      return this.executeInlineViewContentChunk(conversationId, input)
+    }
     if (family === "fetch") {
       return this.executeInlineFetch(input)
     }
@@ -6394,6 +6766,14 @@ ${raw}
 
     const rawQuery =
       this.pickFirstString(input, ["query", "search_term", "searchTerm"]) || ""
+    const readUrl = this.pickFirstString(input, ["url", "Url"]) || ""
+    const documentId =
+      this.pickFirstString(input, ["document_id", "documentId"]) || ""
+    const position = this.pickFirstNumber(input, [
+      "position",
+      "chunk_position",
+      "chunkPosition",
+    ])
     const query =
       family === "web_search" || family === "exa_search"
         ? this.normalizeWebSearchQueryForUserIntent(conversationId, rawQuery)
@@ -6441,6 +6821,36 @@ ${raw}
         toolCallId,
         `[${family} error] Missing required query/pattern parameter`,
         { status: "error", message: "missing query/pattern" }
+      )
+      return true
+    }
+
+    if (family === "read_url_content" && !readUrl) {
+      yield* this.emitInlineToolResult(
+        conversationId,
+        toolCallId,
+        "[read_url_content error] Missing required Url parameter",
+        { status: "error", message: "missing Url" }
+      )
+      return true
+    }
+
+    if (family === "view_content_chunk" && !documentId) {
+      yield* this.emitInlineToolResult(
+        conversationId,
+        toolCallId,
+        "[view_content_chunk error] Missing required document_id parameter",
+        { status: "error", message: "missing document_id" }
+      )
+      return true
+    }
+
+    if (family === "view_content_chunk" && position === undefined) {
+      yield* this.emitInlineToolResult(
+        conversationId,
+        toolCallId,
+        "[view_content_chunk error] Missing required position parameter",
+        { status: "error", message: "missing position" }
       )
       return true
     }
@@ -6573,7 +6983,8 @@ ${raw}
 
   private appendAssistantToolUseMessage(
     conversationId: string,
-    toolCall: ActiveToolCall,
+    toolCallId: string,
+    toolName: string,
     input: Record<string, unknown>,
     accumulatedText: string
   ): void {
@@ -6586,8 +6997,8 @@ ${raw}
     }
     messageContent.push({
       type: "tool_use",
-      id: toolCall.id,
-      name: toolCall.name,
+      id: toolCallId,
+      name: toolName,
       input: input,
     })
     this.sessionManager.addMessage(conversationId, "assistant", messageContent)
@@ -6598,15 +7009,16 @@ ${raw}
     session: ChatSession,
     checkpointModel: string,
     workspaceRootPath: string | undefined,
-    toolCall: ActiveToolCall,
+    toolCallId: string,
+    toolName: string,
     input: Record<string, unknown>
   ): Buffer {
     const checkpointData = {
       messageBlobIds: session.messageBlobIds,
       pendingToolCalls: [
         {
-          id: toolCall.id,
-          name: toolCall.name,
+          id: toolCallId,
+          name: toolName,
           input,
         },
       ],
@@ -6679,9 +7091,16 @@ ${raw}
       workspaceRootPath,
     } = params
 
-    const input = this.parseToolInputJson(toolCall.inputJson)
+    const rawInput = this.parseToolInputJson(toolCall.inputJson)
+    const canonicalInvocation = this.canonicalizeToolInvocation(
+      toolCall.name,
+      rawInput
+    )
+    const canonicalToolName = canonicalInvocation.toolName
+    const input = canonicalInvocation.input
 
-    const deferredToolFamily = this.normalizeDeferredToolFamily(toolCall.name)
+    const deferredToolFamily =
+      this.normalizeDeferredToolFamily(canonicalToolName)
     if (deferredToolFamily === "glob_search") {
       this.primeGlobDeferredInputForProtocol(conversationId, input)
     }
@@ -6690,13 +7109,13 @@ ${raw}
     }
     const execDispatchResolution = this.resolveExecDispatchTarget(
       session,
-      toolCall.name,
+      canonicalToolName,
       input
     )
     const execDispatchTarget = execDispatchResolution.target
     const dispatchErrorMessage = execDispatchResolution.errorMessage
     const canDispatchExec = Boolean(execDispatchTarget)
-    const protocolToolName = execDispatchTarget?.toolName || toolCall.name
+    const protocolToolName = execDispatchTarget?.toolName || canonicalToolName
     const protocolToolInput = execDispatchTarget?.input || input
     const protocolToolFamilyHint = execDispatchTarget?.toolFamilyHint
 
@@ -6747,13 +7166,15 @@ ${raw}
       session,
       checkpointModel,
       workspaceRootPath,
-      toolCall,
+      toolCall.id,
+      protocolToolName,
       input
     )
 
     this.appendAssistantToolUseMessage(
       conversationId,
-      toolCall,
+      toolCall.id,
+      protocolToolName,
       input,
       accumulatedText
     )
@@ -6762,7 +7183,7 @@ ${raw}
       const handledInline = yield* this.runDeferredToolIfNeeded(
         conversationId,
         toolCall.id,
-        toolCall.name,
+        protocolToolName,
         input
       )
       if (handledInline) {
