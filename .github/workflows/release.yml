@@ -1,4 +1,4 @@
-name: Release
+﻿name: Release
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  # ── Build SEA binaries on each platform ────────────────────────────
+  # 鈹€鈹€ Build SEA binaries on each platform 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   build-sea:
     strategy:
       matrix:
@@ -68,20 +68,20 @@ jobs:
           node --experimental-sea-config dist/sea-config.generated.json
 
           $nodeBin = (Get-Command node).Source
-          $binaryName = "agent-vibes-bridge-win32-x64.exe"
+          $binaryName = "cursor-proxy-bridge-win32-x64.exe"
           Copy-Item $nodeBin "dist\$binaryName"
 
           npx -y postject "dist\$binaryName" NODE_SEA_BLOB dist\sea-prep.blob `
             --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
 
           $size = (Get-Item "dist\$binaryName").Length / 1MB
-          Write-Host "✅ SEA binary ready: dist\$binaryName ($([math]::Round($size))MB)"
+          Write-Host "鉁?SEA binary ready: dist\$binaryName ($([math]::Round($size))MB)"
 
       - name: Smoke test (Unix)
         if: runner.os != 'Windows'
         working-directory: apps/protocol-bridge
         run: |
-          BINARY=$(ls dist/agent-vibes-bridge-* | head -1)
+          BINARY=$(ls dist/cursor-proxy-bridge-* | head -1)
           chmod +x "$BINARY"
           # Start server, wait 5s, check health, then kill
           PORT=19999 USE_HTTP2=false "$BINARY" &
@@ -90,17 +90,17 @@ jobs:
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:19999/health || echo "000")
           kill $PID 2>/dev/null || true
           if [ "$STATUS" != "200" ]; then
-            echo "❌ Health check failed (HTTP $STATUS)"
+            echo "鉂?Health check failed (HTTP $STATUS)"
             exit 1
           fi
-          echo "✅ Smoke test passed"
+          echo "鉁?Smoke test passed"
 
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'
         working-directory: apps/protocol-bridge
         shell: pwsh
         run: |
-          $binary = "dist\agent-vibes-bridge-win32-x64.exe"
+          $binary = "dist\cursor-proxy-bridge-win32-x64.exe"
           $env:PORT = "19999"
           $env:USE_HTTP2 = "false"
           $proc = Start-Process -FilePath $binary -PassThru -NoNewWindow
@@ -108,13 +108,13 @@ jobs:
           try {
             $response = Invoke-WebRequest -Uri "http://127.0.0.1:19999/health" -UseBasicParsing -TimeoutSec 5
             if ($response.StatusCode -eq 200) {
-              Write-Host "✅ Smoke test passed"
+              Write-Host "鉁?Smoke test passed"
             } else {
-              Write-Host "❌ Health check failed (HTTP $($response.StatusCode))"
+              Write-Host "鉂?Health check failed (HTTP $($response.StatusCode))"
               exit 1
             }
           } catch {
-            Write-Host "❌ Health check failed: $_"
+            Write-Host "鉂?Health check failed: $_"
             exit 1
           } finally {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -124,10 +124,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bridge-${{ matrix.platform }}-${{ matrix.arch }}
-          path: apps/protocol-bridge/dist/agent-vibes-bridge-*
+          path: apps/protocol-bridge/dist/cursor-proxy-bridge-*
           retention-days: 7
 
-  # ── Build platform-specific VS Code extensions ──────────────────────
+  # 鈹€鈹€ Build platform-specific VS Code extensions 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   build-extension:
     needs: build-sea
     runs-on: ubuntu-latest
@@ -167,18 +167,18 @@ jobs:
             mkdir -p "$dir"
 
             # Find the matching binary from downloaded artifacts
-            src=$(find ../../bridge-binaries -name "agent-vibes-bridge-${target}*" -type f | head -1)
+            src=$(find ../../bridge-binaries -name "cursor-proxy-bridge-${target}*" -type f | head -1)
             if [[ -z "$src" ]]; then
-              echo "❌ No bridge binary found for ${target}"
+              echo "鉂?No bridge binary found for ${target}"
               exit 1
             fi
 
-            cp "$src" "${dir}/agent-vibes-bridge${ext}"
-            [[ -z "$ext" ]] && chmod +x "${dir}/agent-vibes-bridge"
+            cp "$src" "${dir}/cursor-proxy-bridge${ext}"
+            [[ -z "$ext" ]] && chmod +x "${dir}/cursor-proxy-bridge"
 
             # Copy worker.js
             cp ../protocol-bridge/src/llm/native/worker.js "${dir}/worker.js"
-            echo "✅ ${target}: $(du -sh "${dir}/agent-vibes-bridge${ext}" | cut -f1)"
+            echo "鉁?${target}: $(du -sh "${dir}/cursor-proxy-bridge${ext}" | cut -f1)"
           done
 
       - name: Build extension code
@@ -197,7 +197,7 @@ jobs:
         run: |
           TARGETS=("darwin-arm64" "darwin-x64" "linux-x64" "win32-x64")
           for target in "${TARGETS[@]}"; do
-            echo "📦 Packaging for ${target}..."
+            echo "馃摝 Packaging for ${target}..."
 
             # Keep only the target platform's bridge directory
             for other in "${TARGETS[@]}"; do
@@ -215,9 +215,9 @@ jobs:
                 [[ "$other" == "win32-x64" ]] && ext=".exe"
                 dir="bridge/${other}"
                 mkdir -p "$dir"
-                src=$(find ../../bridge-binaries -name "agent-vibes-bridge-${other}*" -type f | head -1)
-                [[ -n "$src" ]] && cp "$src" "${dir}/agent-vibes-bridge${ext}"
-                [[ -z "$ext" && -f "${dir}/agent-vibes-bridge" ]] && chmod +x "${dir}/agent-vibes-bridge"
+                src=$(find ../../bridge-binaries -name "cursor-proxy-bridge-${other}*" -type f | head -1)
+                [[ -n "$src" ]] && cp "$src" "${dir}/cursor-proxy-bridge${ext}"
+                [[ -z "$ext" && -f "${dir}/cursor-proxy-bridge" ]] && chmod +x "${dir}/cursor-proxy-bridge"
                 cp ../protocol-bridge/src/llm/native/worker.js "${dir}/worker.js"
               fi
             done
@@ -232,7 +232,7 @@ jobs:
           path: apps/vscode-extension/*.vsix
           retention-days: 7
 
-  # ── Create GitHub Release with all binaries ────────────────────────
+  # 鈹€鈹€ Create GitHub Release with all binaries 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   release:
     needs: [build-sea, build-extension]
     runs-on: ubuntu-latest
@@ -253,7 +253,7 @@ jobs:
 
       - name: List release assets
         run: |
-          echo "── Cursor extensions ──"
+          echo "鈹€鈹€ Cursor extensions 鈹€鈹€"
           ls -lh extensions/
 
       - name: Create GitHub Release
@@ -263,7 +263,7 @@ jobs:
             extensions/*.vsix
           generate_release_notes: true
           body: |
-            ## Agent Vibes
+            ## Cursor Proxy
 
             ### Cursor Extension (.vsix)
 
@@ -273,38 +273,39 @@ jobs:
 
             ```bash
             # Download
-            curl -L -o agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix
+            curl -L -o cursor-proxy-darwin-arm64-${{ steps.version.outputs.version }}.vsix https://github.com/fjiangming/cursor-proxy/releases/download/${{ github.ref_name }}/cursor-proxy-darwin-arm64-${{ steps.version.outputs.version }}.vsix
 
             # Install
-            cursor --install-extension agent-vibes-darwin-arm64-${{ steps.version.outputs.version }}.vsix --force
+            cursor --install-extension cursor-proxy-darwin-arm64-${{ steps.version.outputs.version }}.vsix --force
             ```
 
             #### macOS Intel
 
             ```bash
             # Download
-            curl -L -o agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix
+            curl -L -o cursor-proxy-darwin-x64-${{ steps.version.outputs.version }}.vsix https://github.com/fjiangming/cursor-proxy/releases/download/${{ github.ref_name }}/cursor-proxy-darwin-x64-${{ steps.version.outputs.version }}.vsix
 
             # Install
-            cursor --install-extension agent-vibes-darwin-x64-${{ steps.version.outputs.version }}.vsix --force
+            cursor --install-extension cursor-proxy-darwin-x64-${{ steps.version.outputs.version }}.vsix --force
             ```
 
             #### Linux x64
 
             ```bash
             # Download
-            curl -L -o agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix
+            curl -L -o cursor-proxy-linux-x64-${{ steps.version.outputs.version }}.vsix https://github.com/fjiangming/cursor-proxy/releases/download/${{ github.ref_name }}/cursor-proxy-linux-x64-${{ steps.version.outputs.version }}.vsix
 
             # Install
-            cursor --install-extension agent-vibes-linux-x64-${{ steps.version.outputs.version }}.vsix --force
+            cursor --install-extension cursor-proxy-linux-x64-${{ steps.version.outputs.version }}.vsix --force
             ```
 
             #### Windows x64
 
             ```powershell
             # Download
-            Invoke-WebRequest -Uri "https://github.com/funny-vibes/agent-vibes/releases/download/${{ github.ref_name }}/agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix" -OutFile "agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix"
+            Invoke-WebRequest -Uri "https://github.com/fjiangming/cursor-proxy/releases/download/${{ github.ref_name }}/cursor-proxy-win32-x64-${{ steps.version.outputs.version }}.vsix" -OutFile "cursor-proxy-win32-x64-${{ steps.version.outputs.version }}.vsix"
 
             # Install
-            cursor --install-extension agent-vibes-win32-x64-${{ steps.version.outputs.version }}.vsix --force
+            cursor --install-extension cursor-proxy-win32-x64-${{ steps.version.outputs.version }}.vsix --force
             ```
+
