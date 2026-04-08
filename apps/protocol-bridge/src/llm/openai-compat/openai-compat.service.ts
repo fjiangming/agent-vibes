@@ -461,7 +461,7 @@ export class OpenaiCompatService implements OnModuleInit {
     }
     if (Array.isArray(val)) {
       const models = val
-        .filter((v) => typeof v === "string" && v.trim() !== "")
+        .filter((v): v is string => typeof v === "string" && v.trim() !== "")
         .map((v) => v.trim())
       return models.length > 0 ? models : undefined
     }
