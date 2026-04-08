@@ -106,9 +106,9 @@ curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-st
 - **Stop Service**: Press `Ctrl + C` in the running terminal.
 - **Update Service**: Whether you installed using the default or custom path, simply **re-run the exact same command you used to install**.
   The script will automatically detect the existing directory, pull the latest code using `git fetch` and `git reset --hard origin/dev`, reinstall dependencies, and restart.
-- **Clean Uninstall**: Simply delete the `.cursor-proxy` folder in your home
+- **Clean Uninstall**: First, ensure the proxy service is stopped (Press `Ctrl + C` if it is running in your terminal). Then simply delete the `.cursor-proxy` folder in your home
   directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`,
-  macOS/Linux: `rm -rf ~/.cursor-proxy`). There is no registry or global system pollution.
+  macOS/Linux: `rm -rf ~/.cursor-proxy`). If you receive a "File in use" error, double-check that Node.js or Cursor is fully closed. There is no registry or global system pollution.
 
 ### Manual Source Installation (Advanced)
 
@@ -251,8 +251,9 @@ The extension auto-starts the proxy server and guides you through first-run setu
 
 **Uninstall Extension Cleanly:**
 
-1. Go to the Extensions panel in Cursor, search for **Cursor Proxy**, and click **Uninstall**.
-2. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). There are no global registry keys left behind.
+1. **Stop the Proxy**: Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) to open the Command Palette, and execute **Cursor Proxy: Stop Server**. (Alternatively, fully quit Cursor). This ensures the background `node` process releases its lock on the data files.
+2. Go to the Extensions panel in Cursor, search for **Cursor Proxy**, and click **Uninstall**.
+3. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). If Windows complains that the folder is in use, make sure you performed Step 1 correctly. There are no global registry keys left behind.
 
 **Option B: CLI**
 

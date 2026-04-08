@@ -93,7 +93,7 @@ curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-st
 - **停止服务**：在运行服务的终端中按下 `Ctrl + C` 即可。
 - **如何更新**：无论是一键安装还是自定义路径安装，你只需**重新执行一次你安装时运行的命令**即可。
   脚本会自动检测已存在的目录，使用 `git fetch` 和 `git reset --hard origin/dev` 拉取最新代码并强制重新编译安装依赖。
-- **干净卸载**：只需删除用户主目录下的 `.cursor-proxy` 文件夹（Windows 可执行 `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux 执行 `rm -rf ~/.cursor-proxy`），没有任何注册表或全局系统污染。
+- **干净卸载**：如果你目前正在运行终端服务，请先在终端中按下 `Ctrl + C` 停止服务，然后再删除用户主目录下的 `.cursor-proxy` 文件夹（Windows 可执行 `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux 执行 `rm -rf ~/.cursor-proxy`）。如果 Windows 提示文件被占用无法删除，请确保终端进程已被完全关闭。没有全局或注册表残留。
 
 ### **源码安装（全平台）：**
 
@@ -232,8 +232,9 @@ cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
 
 **干净卸载插件：**
 
-1. 在 Cursor 左侧的扩展面板中搜索 **Cursor Proxy**，点击 **卸载 (Uninstall)**。
-2. 删除系统自动生成的后端数据目录（Windows 用户请在终端执行：`Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux 执行 `rm -rf ~/.cursor-proxy`）。程序纯绿色执行，没有任何全局残留或注册表垃圾。
+1. **先停止后端服务释放文件占用**：在 Cursor 中按下 `Ctrl+Shift+P` (Mac 使用 `Cmd+Shift+P`) 打开命令面板，执行 **Cursor Proxy: Stop Server** 来关停后台服务。（或者你也可以选择直接彻底退出关闭 Cursor 软件本身）。
+2. 在 Cursor 左侧的扩展面板中搜索 **Cursor Proxy**，点击 **卸载 (Uninstall)**。
+3. 最后，删除系统自动生成的后端数据目录（Windows 用户请在终端执行：`Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`，macOS/Linux 执行 `rm -rf ~/.cursor-proxy`）。程序纯绿色执行，没有任何全局残留或注册表垃圾。如果提示“文件被占用无法删除”，请确认你已经做好了第 1 步。
 
 **方式 B：CLI**
 
