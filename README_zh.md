@@ -97,7 +97,7 @@ curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-st
 
 ### **源码安装（全平台）：**
 
-> **提示：** 如果你只需要 Cursor IDE 支持，可以跳过源码安装，直接使用[扩展安装](#配合-cursor-ide-使用)，无需编译。
+> **提示：** 如果你只需要 Cursor IDE 支持，可以跳过源码安装，直接使用下方的 **方式 A：扩展安装**，无需编译。
 >
 > **说明：** 当前主要在 macOS 上开发与测试。
 > Linux 和 Windows 虽然都已实现支持，但尚未完整验证，脚本在这些平台上仍可能存在边界问题。欢迎 PR。
@@ -150,24 +150,8 @@ agent-vibes sync --codex
 ```
 
 ### 日常使用
-#### 配合 Claude Code CLI 使用
 
-```bash
-agent-vibes                  # 启动代理
-```
-
-在另一个终端中：
-
-```bash
-export ANTHROPIC_BASE_URL=https://localhost:8000
-claude
-```
-
-> **提示：** 可以把 `export ANTHROPIC_BASE_URL=https://localhost:8000` 写入你的 shell profile，以便长期生效。
-
-#### 配合 Cursor IDE 使用
-
-Cursor 客户端侧使用 free 账号即可，不需要开通 Cursor 付费订阅。
+使用免费版 Cursor 账号即可体验所有的 AI 代理特性，不需要开通 Cursor 付费订阅。
 
 **方式 A：扩展安装（推荐）**
 

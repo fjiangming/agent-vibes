@@ -114,7 +114,7 @@ curl -sSL https://raw.githubusercontent.com/fjiangming/cursor-proxy/dev/quick-st
 
 **From source (all platforms):**
 
-> **Tip:** If you only need Cursor IDE support, skip this and use the [Extension install](#cursor-ide) instead — no source build required.
+> **Tip:** If you only need Cursor IDE support, skip this and use the **Option A: Extension** install below — no source build required.
 >
 > **Note:** Primary development and testing is done on macOS.
 > Linux and Windows support is implemented but not fully tested —
@@ -167,24 +167,8 @@ agent-vibes sync --codex
 ```
 
 ### Daily Use
-#### Claude Code CLI
 
-```bash
-agent-vibes                  # start proxy
-```
-
-In another terminal:
-
-```bash
-export ANTHROPIC_BASE_URL=https://localhost:8000
-claude
-```
-
-> **Tip:** Add `export ANTHROPIC_BASE_URL=https://localhost:8000` to your shell profile to make it persistent.
-
-#### Cursor IDE
-
-For the Cursor client side, a free account is enough. No paid Cursor plan is required.
+A free Cursor account is enough to use all agentic proxy features. No paid Cursor plan is required.
 
 **Option A: Extension (Recommended)**
 
