@@ -146,6 +146,9 @@ The extension auto-starts the proxy server and guides you through first-run setu
 1. **Stop the Proxy**: Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) to open the Command Palette, and execute **Cursor Proxy: Stop Server**. (Alternatively, fully quit Cursor). This ensures the background `node` process releases its lock on the data files.
 2. Go to the Extensions panel in Cursor, search for **Cursor Proxy**, and click **Uninstall**.
 3. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). If Windows complains that the folder is in use, make sure you performed Step 1 correctly. There are no global registry keys left behind.
+4. **Upgrading from old version?** If you previously used the extension under its old name (`agent-vibes`), you may also need to:
+   - Uninstall the old extension `funny-vibes.agent-vibes` from the Extensions panel (or run `cursor --uninstall-extension funny-vibes.agent-vibes`).
+   - Delete the legacy data directory `~/.agent-vibes` (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`, macOS/Linux: `rm -rf ~/.agent-vibes`). If the folder refuses to delete, an old bridge process is still running — kill it first via Task Manager / `Get-Process | Where-Object { $_.Path -like "*agent-vibes*" } | Stop-Process -Force`, then retry.
 
 ## Backend Configuration Reference
 
