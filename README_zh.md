@@ -127,6 +127,11 @@ cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
 
 安装后重启 Cursor，扩展会自动启动代理服务器并引导你完成首次配置（SSL 证书、账号同步、网络转发等均可在命令面板中操作）。
 
+**修复 SSL 证书 / Fetch 连接错误：**
+如果在 Cursor 升级或网络环境变更后，遇到模型请求无响应、`fetch failed` 或 `An unexpected error occurred` 等连接报错：
+1. 点击状态栏或通过命令面板打开 **Cursor Proxy Dashboard**。
+2. 在 Action 面板点击 **Regenerate Certificates (Fix SSL)**，为新增的官方域名签发受信任证书。
+3. 彻底退出并重启 Cursor IDE 即可生效。
 
 **干净卸载插件：**
 

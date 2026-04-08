@@ -10,7 +10,7 @@ import * as fs from "fs"
  *   - ~/.protocol-bridge/
  */
 
-const DEFAULT_DATA_DIR_NAME = ".agent-vibes"
+const DEFAULT_DATA_DIR_NAME = ".cursor-proxy"
 
 export function getCursorProxyHome(): string {
   const envOverride = process.env.AGENT_VIBES_DATA_DIR

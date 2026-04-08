@@ -48,6 +48,9 @@ const HOST_DOMAINS = [
   "api2.cursor.sh",
   "api2geo.cursor.sh",
   "api2direct.cursor.sh",
+  "api3.cursor.sh",
+  "api4.cursor.sh",
+  "api.cursorapi.com",
 ]
 
 // ANSI colors

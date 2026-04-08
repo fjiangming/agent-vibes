@@ -799,6 +799,7 @@
       'cursorProxy.restartServer': { label: 'Restart', tone: 'secondary' },
       'cursorProxy.enableForwarding': { label: 'Enable forwarding', tone: 'primary' },
       'cursorProxy.disableForwarding': { label: 'Disable forwarding', tone: 'secondary' },
+      'cursorProxy.generateCert': { label: 'Generate Certificates', tone: 'secondary' },
     };
     var ACTION_TIMEOUTS = {
       'cursorProxy.startServer': 60000,
@@ -806,6 +807,7 @@
       'cursorProxy.restartServer': 60000,
       'cursorProxy.enableForwarding': 45000,
       'cursorProxy.disableForwarding': 45000,
+      'cursorProxy.generateCert': 20000,
     };
 
     function esc(v) {
@@ -994,6 +996,8 @@
       } else {
         baseActions.push({ label: 'Enable forwarding', command: 'cursorProxy.enableForwarding', tone: isRunning ? 'primary' : 'secondary' });
       }
+
+      baseActions.push({ label: 'Regenerate Certificates (Fix SSL)', command: 'cursorProxy.generateCert', tone: 'secondary' });
 
       if (pendingDisplayCommand && !baseActions.some(function(action) { return action.command === pendingDisplayCommand; })) {
         var pendingMeta = ACTION_META[pendingDisplayCommand];

@@ -1155,7 +1155,7 @@ export class OpenaiCompatService implements OnModuleInit {
       disabled: entries.filter((entry) => entry.state === "disabled").length,
       unavailable: 0,
       configPath: this.accountsConfigPath,
-      statePath: "~/.agent-vibes/pgdata/agent-vibes.db",
+      statePath: "~/.cursor-proxy/pgdata/agent-vibes.db",
       entries,
     }
   }
@@ -1917,6 +1917,7 @@ export class OpenaiCompatService implements OnModuleInit {
     this.logger.log(
       `[OpenAI-Compat] Non-stream request: model=${request.model}, url=${url}, reasoning=${JSON.stringify(request.reasoning || null)}`
     )
+    this.logger.debug(`[OpenAI-Compat] Request Body: ${JSON.stringify(request, null, 2)}`)
 
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
       method: "POST",
@@ -2151,6 +2152,9 @@ export class OpenaiCompatService implements OnModuleInit {
     this.logger.log(
       `[OpenAI-Compat] Stream request: model=${request.model}, url=${url}, reasoning=${JSON.stringify(request.reasoning || null)}`
     )
+    if (process.env.LOG_DEBUG === "true") {
+      this.logger.debug(`[OpenAI-Compat] Request Body: ${JSON.stringify(request, null, 2)}`)
+    }
 
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
       method: "POST",
@@ -2266,6 +2270,10 @@ export class OpenaiCompatService implements OnModuleInit {
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed) continue
+
+          if (process.env.LOG_DEBUG === "true") {
+            this.logger.debug(`[OpenAI-Compat] Stream chunk: ${trimmed}`)
+          }
 
           const events = this.translateStreamChunk(trimmed, state)
           for (const event of events) {

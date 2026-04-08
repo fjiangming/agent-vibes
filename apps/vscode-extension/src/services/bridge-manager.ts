@@ -328,10 +328,10 @@ export class BridgeManager extends EventEmitter {
       return { binary: process.execPath, args: [sourceMain] }
     }
 
-    // 3. Check global install directory ~/.agent-vibes/bin/
+    // 3. Check global install directory ~/.cursor-proxy/bin/
     const globalBin = path.join(
       os.homedir(),
-      ".agent-vibes",
+      ".cursor-proxy",
       "bin",
       `cursor-proxy-bridge${ext}`
     )

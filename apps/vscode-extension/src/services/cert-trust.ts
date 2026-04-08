@@ -243,7 +243,7 @@ if [ -f "${profile.path}" ]; then
   if grep -q "NODE_EXTRA_CA_CERTS" "${profile.path}" 2>/dev/null; then
     # Check if it already points to the correct CA path
     if grep -q 'NODE_EXTRA_CA_CERTS="${caCertPath}"' "${profile.path}" 2>/dev/null || \\
-       grep -q "NODE_EXTRA_CA_CERTS=\\"\\$HOME/.agent-vibes/certs/ca.pem\\"" "${profile.path}" 2>/dev/null; then
+       grep -q "NODE_EXTRA_CA_CERTS=\\"\\$HOME/.cursor-proxy/certs/ca.pem\\"" "${profile.path}" 2>/dev/null; then
       echo "✓ NODE_EXTRA_CA_CERTS already correctly configured in ${profile.name}"
     else
       # Replace existing NODE_EXTRA_CA_CERTS with the correct path

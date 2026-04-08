@@ -146,6 +146,12 @@ export class NetworkManager {
    * Check if the TCP relay process is running.
    */
   isRelayRunning(): boolean {
+    if (process.platform === "win32") {
+      // Windows uses the native netsh portproxy so there is no separate Node.js relay process PID to track.
+      // We safely consider the relay running locally if the hosts are injected.
+      return this.hasHostEntries()
+    }
+    
     try {
       const pid = parseInt(fs.readFileSync(PID_FILE, "utf-8").trim())
       if (isNaN(pid)) return false

@@ -37,9 +37,9 @@ export function getLoopbackCommand(
   }
 }
 
-/** Returns the default data directory (~/.agent-vibes/) */
+/** Returns the default data directory (~/.cursor-proxy/) */
 export function getDefaultDataDir(): string {
-  return path.join(os.homedir(), ".agent-vibes")
+  return path.join(os.homedir(), ".cursor-proxy")
 }
 
 /** Ensures a directory exists, creating it recursively if needed */

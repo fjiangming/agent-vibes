@@ -440,7 +440,7 @@ export class ClaudeApiService implements OnModuleInit {
       disabled: entries.filter((entry) => entry.state === "disabled").length,
       unavailable: 0,
       configPath: this.accountsConfigPath,
-      statePath: "~/.agent-vibes/pgdata/agent-vibes.db",
+      statePath: "~/.cursor-proxy/pgdata/agent-vibes.db",
       entries,
     }
   }
@@ -634,6 +634,9 @@ export class ClaudeApiService implements OnModuleInit {
     this.logger.log(
       `[Claude API] Non-stream request: model=${dto.model} -> ${candidate.upstreamModel}, url=${url}`
     )
+    if (process.env.LOG_DEBUG === "true") {
+      this.logger.debug(`[Claude API] Request Body: ${JSON.stringify(request.body, null, 2)}`)
+    }
 
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
       method: "POST",
@@ -675,6 +678,9 @@ export class ClaudeApiService implements OnModuleInit {
       }
 
       const result = (await response.json()) as AnthropicResponse
+      if (process.env.LOG_DEBUG === "true") {
+        this.logger.debug(`[Claude API] Response Body: ${JSON.stringify(result, null, 2)}`)
+      }
       this.markAccountHealthy(candidate.account, candidate.upstreamModel)
       this.recordClaudeApiUsage(
         candidate,
@@ -726,6 +732,9 @@ export class ClaudeApiService implements OnModuleInit {
     this.logger.log(
       `[Claude API] Stream request: model=${dto.model} -> ${candidate.upstreamModel}, url=${url}`
     )
+    if (process.env.LOG_DEBUG === "true") {
+      this.logger.debug(`[Claude API] Request Body: ${JSON.stringify(request.body, null, 2)}`)
+    }
 
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
       method: "POST",
@@ -824,6 +833,9 @@ export class ClaudeApiService implements OnModuleInit {
             buffer = buffer.slice(boundary + 2)
             emittedEvents = true
             this.mergeClaudeStreamUsage(streamUsage, chunk)
+            if (process.env.LOG_DEBUG === "true") {
+              this.logger.debug(`[Claude API] Stream chunk: ${chunk.trim()}`)
+            }
             yield chunk.endsWith("\n\n") ? chunk : `${chunk}\n\n`
             boundary = buffer.indexOf("\n\n")
           }

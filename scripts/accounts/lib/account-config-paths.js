@@ -10,7 +10,7 @@ const ACCOUNT_CONFIG_ENV_VARS = {
 
 function getAgentVibesDataDir() {
   return (
-    process.env.AGENT_VIBES_DATA_DIR || path.join(os.homedir(), ".agent-vibes")
+    process.env.AGENT_VIBES_DATA_DIR || path.join(os.homedir(), ".cursor-proxy")
   )
 }
 

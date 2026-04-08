@@ -23,10 +23,10 @@ if (sea && sea.isSea()) {
   const path = require("path")
   const os = require("os")
 
-  // Extract migration SQL files to ~/.agent-vibes/pgdata/migrations/
+  // Extract migration SQL files to ~/.cursor-proxy/pgdata/migrations/
   const migrationsDir = path.join(
     os.homedir(),
-    ".agent-vibes",
+    ".cursor-proxy",
     "pgdata",
     "migrations"
   )
