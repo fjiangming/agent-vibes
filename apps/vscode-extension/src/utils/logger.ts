@@ -27,7 +27,7 @@ class Logger {
   }
 
   debug(message: string): void {
-    const config = vscode.workspace.getConfiguration("agentVibes")
+    const config = vscode.workspace.getConfiguration("cursorProxy")
     if (config.get<boolean>("debugMode")) {
       this.write("DEBUG", message)
     }

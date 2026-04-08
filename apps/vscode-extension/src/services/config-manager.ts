@@ -10,7 +10,7 @@ export class ConfigManager {
   private _dataDir: string
 
   constructor() {
-    const config = vscode.workspace.getConfiguration("agentVibes")
+    const config = vscode.workspace.getConfiguration("cursorProxy")
     const customDir = config.get<string>("dataDir")
     this._dataDir = customDir || getDefaultDataDir()
     this.ensureDirectories()
@@ -42,7 +42,7 @@ export class ConfigManager {
 
   get port(): number {
     return (
-      vscode.workspace.getConfiguration("agentVibes").get<number>("port") ??
+      vscode.workspace.getConfiguration("cursorProxy").get<number>("port") ??
       2026
     )
   }
@@ -50,7 +50,7 @@ export class ConfigManager {
   get autoStart(): boolean {
     return (
       vscode.workspace
-        .getConfiguration("agentVibes")
+        .getConfiguration("cursorProxy")
         .get<boolean>("autoStart") ?? true
     )
   }
@@ -58,7 +58,7 @@ export class ConfigManager {
   get healthCheckInterval(): number {
     return (
       vscode.workspace
-        .getConfiguration("agentVibes")
+        .getConfiguration("cursorProxy")
         .get<number>("healthCheckInterval") ?? 30
     )
   }
@@ -66,14 +66,14 @@ export class ConfigManager {
   get debugMode(): boolean {
     return (
       vscode.workspace
-        .getConfiguration("agentVibes")
+        .getConfiguration("cursorProxy")
         .get<boolean>("debugMode") ?? false
     )
   }
 
   private getConfiguredAccountPath(settingKey: string): string {
     return (
-      vscode.workspace.getConfiguration("agentVibes").get<string>(settingKey) ??
+      vscode.workspace.getConfiguration("cursorProxy").get<string>(settingKey) ??
       ""
     ).trim()
   }

@@ -3,7 +3,7 @@
  */
 
 // Extension identifiers
-export const EXTENSION_ID = "agent-vibes"
+export const EXTENSION_ID = "cursor-proxy"
 export const EXTENSION_DISPLAY_NAME = "Cursor Proxy"
 
 // Context keys (for when-clause evaluation)
