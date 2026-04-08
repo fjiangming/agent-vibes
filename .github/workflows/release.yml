@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  # 鈹€鈹€ Build SEA binaries on each platform 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  # ── Build SEA binaries on each platform ────────────────────────────
   build-sea:
     strategy:
       matrix:
@@ -75,7 +75,7 @@ jobs:
             --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
 
           $size = (Get-Item "dist\$binaryName").Length / 1MB
-          Write-Host "鉁?SEA binary ready: dist\$binaryName ($([math]::Round($size))MB)"
+          Write-Host "✅ SEA binary ready: dist\$binaryName ($([math]::Round($size))MB)"
 
       - name: Smoke test (Unix)
         if: runner.os != 'Windows'
@@ -90,10 +90,10 @@ jobs:
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:19999/health || echo "000")
           kill $PID 2>/dev/null || true
           if [ "$STATUS" != "200" ]; then
-            echo "鉂?Health check failed (HTTP $STATUS)"
+            echo "❌ Health check failed (HTTP $STATUS)"
             exit 1
           fi
-          echo "鉁?Smoke test passed"
+          echo "✅ Smoke test passed"
 
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'
@@ -108,13 +108,13 @@ jobs:
           try {
             $response = Invoke-WebRequest -Uri "http://127.0.0.1:19999/health" -UseBasicParsing -TimeoutSec 5
             if ($response.StatusCode -eq 200) {
-              Write-Host "鉁?Smoke test passed"
+              Write-Host "✅ Smoke test passed"
             } else {
-              Write-Host "鉂?Health check failed (HTTP $($response.StatusCode))"
+              Write-Host "❌ Health check failed (HTTP $($response.StatusCode))"
               exit 1
             }
           } catch {
-            Write-Host "鉂?Health check failed: $_"
+            Write-Host "❌ Health check failed: $_"
             exit 1
           } finally {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -127,7 +127,7 @@ jobs:
           path: apps/protocol-bridge/dist/cursor-proxy-bridge-*
           retention-days: 7
 
-  # 鈹€鈹€ Build platform-specific VS Code extensions 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  # ── Build platform-specific VS Code extensions ──────────────────────
   build-extension:
     needs: build-sea
     runs-on: ubuntu-latest
@@ -169,7 +169,7 @@ jobs:
             # Find the matching binary from downloaded artifacts
             src=$(find ../../bridge-binaries -name "cursor-proxy-bridge-${target}*" -type f | head -1)
             if [[ -z "$src" ]]; then
-              echo "鉂?No bridge binary found for ${target}"
+              echo "❌ No bridge binary found for ${target}"
               exit 1
             fi
 
@@ -178,7 +178,7 @@ jobs:
 
             # Copy worker.js
             cp ../protocol-bridge/src/llm/native/worker.js "${dir}/worker.js"
-            echo "鉁?${target}: $(du -sh "${dir}/cursor-proxy-bridge${ext}" | cut -f1)"
+            echo "✅ ${target}: $(du -sh "${dir}/cursor-proxy-bridge${ext}" | cut -f1)"
           done
 
       - name: Build extension code
@@ -197,7 +197,7 @@ jobs:
         run: |
           TARGETS=("darwin-arm64" "darwin-x64" "linux-x64" "win32-x64")
           for target in "${TARGETS[@]}"; do
-            echo "馃摝 Packaging for ${target}..."
+            echo "📦 Packaging for ${target}..."
 
             # Keep only the target platform's bridge directory
             for other in "${TARGETS[@]}"; do
@@ -232,7 +232,7 @@ jobs:
           path: apps/vscode-extension/*.vsix
           retention-days: 7
 
-  # 鈹€鈹€ Create GitHub Release with all binaries 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  # ── Create GitHub Release with all binaries ────────────────────────
   release:
     needs: [build-sea, build-extension]
     runs-on: ubuntu-latest
@@ -253,7 +253,7 @@ jobs:
 
       - name: List release assets
         run: |
-          echo "鈹€鈹€ Cursor extensions 鈹€鈹€"
+          echo "── Cursor extensions ──"
           ls -lh extensions/
 
       - name: Create GitHub Release
