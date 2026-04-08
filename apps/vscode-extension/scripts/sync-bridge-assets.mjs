@@ -56,8 +56,8 @@ const requiredTargets = allPlatforms
 function findSourceBinary(aliases) {
   for (const alias of aliases) {
     const candidates = [
-      path.join(distDir, `agent-vibes-bridge-${alias}`),
-      path.join(distDir, `agent-vibes-bridge-${alias}.exe`),
+      path.join(distDir, `cursor-proxy-bridge-${alias}`),
+      path.join(distDir, `cursor-proxy-bridge-${alias}.exe`),
     ]
 
     for (const candidate of candidates) {
@@ -75,7 +75,7 @@ const missingTargets = []
 
 for (const entry of supportedTargets) {
   const bridgeDir = path.join(extensionRoot, "bridge", entry.target)
-  const targetBinary = path.join(bridgeDir, `agent-vibes-bridge${entry.exe}`)
+  const targetBinary = path.join(bridgeDir, `cursor-proxy-bridge${entry.exe}`)
   const targetWorker = path.join(bridgeDir, "worker.js")
   const sourceBinary = findSourceBinary(entry.aliases)
   const hasExistingBinary = fs.existsSync(targetBinary)

@@ -6,10 +6,10 @@ This directory contains pre-compiled Protocol Bridge SEA (Single Executable Appl
 
 ```text
 bridge/
-├── darwin-arm64/agent-vibes-bridge    # macOS Apple Silicon
-├── darwin-x64/agent-vibes-bridge      # macOS Intel
-├── linux-x64/agent-vibes-bridge       # Linux x64
-└── win32-x64/agent-vibes-bridge.exe   # Windows x64
+├── darwin-arm64/cursor-proxy-bridge    # macOS Apple Silicon
+├── darwin-x64/cursor-proxy-bridge      # macOS Intel
+├── linux-x64/cursor-proxy-bridge       # Linux x64
+└── win32-x64/cursor-proxy-bridge.exe   # Windows x64
 ```
 
 ## Building

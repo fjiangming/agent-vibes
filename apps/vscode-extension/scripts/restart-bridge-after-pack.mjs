@@ -29,14 +29,14 @@ const binaryPath = path.join(
   installedExtensionDir,
   "bridge",
   target,
-  `agent-vibes-bridge${exeExtension}`
+  `cursor-proxy-bridge${exeExtension}`
 )
 
-const PID_FILE = path.join(os.tmpdir(), "agent-vibes-bridge.pid")
-const LOG_FILE = path.join(os.tmpdir(), "agent-vibes-bridge.log")
+const PID_FILE = path.join(os.tmpdir(), "cursor-proxy-bridge.pid")
+const LOG_FILE = path.join(os.tmpdir(), "cursor-proxy-bridge.log")
 const PREVIOUS_LOG_FILE = path.join(
   os.tmpdir(),
-  "agent-vibes-bridge.previous.log"
+  "cursor-proxy-bridge.previous.log"
 )
 
 function stripJsonComments(input) {
@@ -173,7 +173,7 @@ function listBridgePids() {
         [
           "-NoProfile",
           "-Command",
-          'Get-Process | Where-Object { $_.ProcessName -like "*agent-vibes-bridge*" } | Select-Object -ExpandProperty Id',
+          'Get-Process | Where-Object { $_.ProcessName -like "*cursor-proxy-bridge*" } | Select-Object -ExpandProperty Id',
         ],
         { encoding: "utf-8" }
       )
@@ -200,7 +200,7 @@ function listBridgePids() {
         const command = match[2] || ""
         if (!Number.isFinite(pid)) continue
         if (
-          command.includes("agent-vibes-bridge") &&
+          command.includes("cursor-proxy-bridge") &&
           (command.includes(binaryRealPath) ||
             command.includes(installedExtensionDir))
         ) {

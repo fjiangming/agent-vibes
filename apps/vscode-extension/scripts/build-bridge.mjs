@@ -21,7 +21,7 @@ if (process.platform === "win32") {
     "node scripts/generate-sea-config.mjs",
     "node --experimental-sea-config dist/sea-config.generated.json",
     "$nodeBin = (Get-Command node).Source",
-    '$binaryName = "agent-vibes-bridge-win32-x64.exe"',
+    '$binaryName = "cursor-proxy-bridge-win32-x64.exe"',
     'Copy-Item $nodeBin "dist\\$binaryName"',
     'npx -y postject "dist\\$binaryName" NODE_SEA_BLOB dist\\sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
     '$size = [math]::Round((Get-Item "dist\\$binaryName").Length / 1MB)',

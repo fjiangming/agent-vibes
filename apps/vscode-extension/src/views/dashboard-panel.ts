@@ -294,7 +294,7 @@ export class DashboardPanel {
     const os = require("os") as typeof import("os")
     const path = require("path") as typeof import("path")
     const fs = require("fs") as typeof import("fs")
-    const logFile = path.join(os.tmpdir(), "agent-vibes-bridge.log")
+    const logFile = path.join(os.tmpdir(), "cursor-proxy-bridge.log")
 
     // Strip ANSI escape sequences (colors, bold, cursor, etc.)
     const stripAnsi = (s: string): string =>

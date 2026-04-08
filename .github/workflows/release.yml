@@ -68,7 +68,7 @@ jobs:
           node --experimental-sea-config dist/sea-config.generated.json
 
           $nodeBin = (Get-Command node).Source
-          $binaryName = "agent-vibes-bridge-win32-x64.exe"
+          $binaryName = "cursor-proxy-bridge-win32-x64.exe"
           Copy-Item $nodeBin "dist\$binaryName"
 
           npx -y postject "dist\$binaryName" NODE_SEA_BLOB dist\sea-prep.blob `
@@ -81,7 +81,7 @@ jobs:
         if: runner.os != 'Windows'
         working-directory: apps/protocol-bridge
         run: |
-          BINARY=$(ls dist/agent-vibes-bridge-* | head -1)
+          BINARY=$(ls dist/cursor-proxy-bridge-* | head -1)
           chmod +x "$BINARY"
           # Start server, wait 5s, check health, then kill
           PORT=19999 USE_HTTP2=false "$BINARY" &
@@ -100,7 +100,7 @@ jobs:
         working-directory: apps/protocol-bridge
         shell: pwsh
         run: |
-          $binary = "dist\agent-vibes-bridge-win32-x64.exe"
+          $binary = "dist\cursor-proxy-bridge-win32-x64.exe"
           $env:PORT = "19999"
           $env:USE_HTTP2 = "false"
           $proc = Start-Process -FilePath $binary -PassThru -NoNewWindow
@@ -124,7 +124,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bridge-${{ matrix.platform }}-${{ matrix.arch }}
-          path: apps/protocol-bridge/dist/agent-vibes-bridge-*
+          path: apps/protocol-bridge/dist/cursor-proxy-bridge-*
           retention-days: 7
 
   # 鈹€鈹€ Build platform-specific VS Code extensions 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -167,18 +167,18 @@ jobs:
             mkdir -p "$dir"
 
             # Find the matching binary from downloaded artifacts
-            src=$(find ../../bridge-binaries -name "agent-vibes-bridge-${target}*" -type f | head -1)
+            src=$(find ../../bridge-binaries -name "cursor-proxy-bridge-${target}*" -type f | head -1)
             if [[ -z "$src" ]]; then
               echo "鉂?No bridge binary found for ${target}"
               exit 1
             fi
 
-            cp "$src" "${dir}/agent-vibes-bridge${ext}"
-            [[ -z "$ext" ]] && chmod +x "${dir}/agent-vibes-bridge"
+            cp "$src" "${dir}/cursor-proxy-bridge${ext}"
+            [[ -z "$ext" ]] && chmod +x "${dir}/cursor-proxy-bridge"
 
             # Copy worker.js
             cp ../protocol-bridge/src/llm/native/worker.js "${dir}/worker.js"
-            echo "鉁?${target}: $(du -sh "${dir}/agent-vibes-bridge${ext}" | cut -f1)"
+            echo "鉁?${target}: $(du -sh "${dir}/cursor-proxy-bridge${ext}" | cut -f1)"
           done
 
       - name: Build extension code
@@ -215,9 +215,9 @@ jobs:
                 [[ "$other" == "win32-x64" ]] && ext=".exe"
                 dir="bridge/${other}"
                 mkdir -p "$dir"
-                src=$(find ../../bridge-binaries -name "agent-vibes-bridge-${other}*" -type f | head -1)
-                [[ -n "$src" ]] && cp "$src" "${dir}/agent-vibes-bridge${ext}"
-                [[ -z "$ext" && -f "${dir}/agent-vibes-bridge" ]] && chmod +x "${dir}/agent-vibes-bridge"
+                src=$(find ../../bridge-binaries -name "cursor-proxy-bridge-${other}*" -type f | head -1)
+                [[ -n "$src" ]] && cp "$src" "${dir}/cursor-proxy-bridge${ext}"
+                [[ -z "$ext" && -f "${dir}/cursor-proxy-bridge" ]] && chmod +x "${dir}/cursor-proxy-bridge"
                 cp ../protocol-bridge/src/llm/native/worker.js "${dir}/worker.js"
               fi
             done

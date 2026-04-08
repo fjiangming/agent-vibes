@@ -5,7 +5,7 @@
 #   - Node.js 24+ (with node:sqlite built-in)
 #   - npm dependencies installed
 #
-# Output: dist/agent-vibes-bridge (single binary, ~80MB)
+# Output: dist/cursor-proxy-bridge (single binary, ~80MB)
 #
 # Usage:
 #   ./scripts/build-sea.sh          # Build for current platform
@@ -35,7 +35,7 @@ case "$RAW_ARCH" in
   *) ARCH="$RAW_ARCH" ;;
 esac
 
-BINARY_NAME="agent-vibes-bridge-${PLATFORM}-${ARCH}"
+BINARY_NAME="cursor-proxy-bridge-${PLATFORM}-${ARCH}"
 
 sync_migration_assets() {
   if [[ ! -d "$SOURCE_MIGRATIONS_DIR" ]]; then

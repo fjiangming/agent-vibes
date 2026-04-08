@@ -11,11 +11,11 @@ import { ConfigManager } from "./config-manager"
 import type { ServerState } from "../constants"
 import { CTX_SERVER_RUNNING } from "../constants"
 
-const PID_FILE = path.join(os.tmpdir(), "agent-vibes-bridge.pid")
-const LOG_FILE = path.join(os.tmpdir(), "agent-vibes-bridge.log")
+const PID_FILE = path.join(os.tmpdir(), "cursor-proxy-bridge.pid")
+const LOG_FILE = path.join(os.tmpdir(), "cursor-proxy-bridge.log")
 const PREVIOUS_LOG_FILE = path.join(
   os.tmpdir(),
-  "agent-vibes-bridge.previous.log"
+  "cursor-proxy-bridge.previous.log"
 )
 
 /**
@@ -308,7 +308,7 @@ export class BridgeManager extends EventEmitter {
       this.extensionPath,
       "bridge",
       target,
-      `agent-vibes-bridge${ext}`
+      `cursor-proxy-bridge${ext}`
     )
 
     if (fs.existsSync(seaPath)) {
@@ -333,7 +333,7 @@ export class BridgeManager extends EventEmitter {
       os.homedir(),
       ".agent-vibes",
       "bin",
-      `agent-vibes-bridge${ext}`
+      `cursor-proxy-bridge${ext}`
     )
     if (fs.existsSync(globalBin)) {
       logger.info(`Using globally installed SEA binary: ${globalBin}`)
