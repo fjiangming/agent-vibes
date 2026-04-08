@@ -140,12 +140,6 @@ Restart Cursor after installation.
 The extension auto-starts the proxy server and guides you through first-run setup
 (SSL certificates, account sync, network forwarding — all from the Command Palette).
 
-**Fixing SSL / Fetch Errors:**
-If you encounter network errors (e.g., `fetch failed` or `An unexpected error occurred`) after Cursor updates or proxy network changes:
-1. Open the Cursor Proxy Dashboard (via the status bar or Command Palette).
-2. Click the **Regenerate Certificates (Fix SSL)** button to generate fresh TLS certificates covering new domains.
-3. Restart the Proxy and IDE completely.
-
 **Uninstall Extension Cleanly:**
 
 > **⚠️ Important:** The proxy bridge process is designed as a **persistent background daemon** — it intentionally survives Cursor restarts so that forwarding stays active between sessions. This means simply closing Cursor will **not** stop the bridge. You must explicitly stop it before uninstalling.
@@ -249,7 +243,6 @@ Configuration:
   ]
 }
 ```
-
 Behavior:
 
 - Codex and OpenAI-compatible both support multi-account rotation.

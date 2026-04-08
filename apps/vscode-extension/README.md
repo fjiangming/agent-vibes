@@ -58,3 +58,9 @@ Cursor Proxy 是一款统一的本地 AI 代理网关客户端插件，允许你
 
 3. **如何反馈问题？**
    你可以通过 `Cursor Proxy: Collect Diagnostics` 命令快速将当前发生的环境报错信息一键打包收集供您参考，同时也欢迎到我们对应的社区讨论提 Issue！
+
+4. **修复 SSL 证书 / Fetch 连接错误？**
+   如果在 Cursor 升级或网络环境变更后，遇到模型请求无响应、`fetch failed` 或 `An unexpected error occurred` 等连接报错：
+   - 点击状态栏或通过命令面板打开 **Cursor Proxy Dashboard**。
+   - 在 Action 面板点击 **Regenerate Certificates (Fix SSL)**，为新增的官方域名签发受信任证书。
+   - 彻底退出并重启 Cursor IDE 即可生效。
