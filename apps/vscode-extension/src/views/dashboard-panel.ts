@@ -59,6 +59,9 @@ export class DashboardPanel {
     }
   }
 
+  private accountFileWatchers: vscode.FileSystemWatcher[] = []
+  private accountFileDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
@@ -104,6 +107,9 @@ export class DashboardPanel {
     )
 
     this.bridge.on("stateChanged", this.handleBridgeStateChanged)
+
+    // Watch account config files for external changes
+    this.watchAccountFiles()
   }
 
   /**
@@ -589,6 +595,17 @@ export class DashboardPanel {
         str || undefined,
         vscode.ConfigurationTarget.Global
       )
+
+      if (
+        key === "dataDir" ||
+        key === "antigravityAccountsPath" ||
+        key === "codexAccountsPath" ||
+        key === "openaiCompatAccountsPath" ||
+        key === "claudeApiAccountsPath"
+      ) {
+        this.config.ensureDirectories()
+        this.watchAccountFiles()
+      }
 
       if (key !== "language") {
         vscode.window.showInformationMessage(
@@ -1752,8 +1769,74 @@ export class DashboardPanel {
     return html
   }
 
+  /**
+   * Watch all account config files for external changes and auto-refresh the panel.
+   */
+  private watchAccountFiles(): void {
+    for (const watcher of this.accountFileWatchers) {
+      watcher.dispose()
+    }
+    this.accountFileWatchers = []
+
+    const channels: AccountChannel[] = [
+      "antigravity",
+      "codex",
+      "openai-compat",
+      "claude-api",
+    ]
+    const watchedFiles = new Set<string>()
+
+    const queueRefresh = () => {
+      if (this.accountFileDebounceTimer) {
+        clearTimeout(this.accountFileDebounceTimer)
+      }
+      this.accountFileDebounceTimer = setTimeout(() => {
+        this.accountFileDebounceTimer = null
+        if (this.panel.visible) {
+          this.sendAllData()
+        }
+      }, 300)
+    }
+
+    for (const channel of channels) {
+      const filePath = this.getChannelPath(channel)
+      if (!filePath) continue
+
+      const normalizedFilePath = path.resolve(filePath)
+      if (watchedFiles.has(normalizedFilePath)) continue
+      watchedFiles.add(normalizedFilePath)
+
+      try {
+        const watcher = vscode.workspace.createFileSystemWatcher(
+          new vscode.RelativePattern(
+            path.dirname(normalizedFilePath),
+            path.basename(normalizedFilePath)
+          )
+        )
+
+        watcher.onDidChange(queueRefresh, null, this.disposables)
+        watcher.onDidCreate(queueRefresh, null, this.disposables)
+        watcher.onDidDelete(queueRefresh, null, this.disposables)
+
+        this.accountFileWatchers.push(watcher)
+      } catch (err) {
+        logger.debug(
+          `Failed to watch ${normalizedFilePath}: ${err instanceof Error ? err.message : String(err)}`
+        )
+      }
+    }
+  }
+
   dispose(): void {
     this.bridge.off("stateChanged", this.handleBridgeStateChanged)
+    for (const watcher of this.accountFileWatchers) {
+      watcher.dispose()
+    }
+    this.accountFileWatchers = []
+    if (this.accountFileDebounceTimer) {
+      clearTimeout(this.accountFileDebounceTimer)
+      this.accountFileDebounceTimer = null
+    }
     DashboardPanel.currentPanel = undefined
     this.panel.dispose()
     while (this.disposables.length) {

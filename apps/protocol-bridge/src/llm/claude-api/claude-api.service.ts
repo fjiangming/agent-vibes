@@ -37,6 +37,11 @@ import {
   BackendPoolEntryState,
   BackendPoolStatus,
 } from "../shared/backend-pool-status"
+import {
+  createAbortPromise,
+  createAbortSignalWithTimeout,
+  toUpstreamRequestAbortedError,
+} from "../shared/abort-signal"
 
 export interface AnthropicForwardHeaders {
   [key: string]: string | undefined
@@ -704,9 +709,15 @@ export class ClaudeApiService implements OnModuleInit {
 
   async *sendClaudeMessageStream(
     dto: CreateMessageDto,
-    forwardHeaders: AnthropicForwardHeaders = {}
+    forwardHeaders: AnthropicForwardHeaders = {},
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
-    yield* this.executeStreamWithCooldownRetry(dto, forwardHeaders, new Set())
+    yield* this.executeStreamWithCooldownRetry(
+      dto,
+      forwardHeaders,
+      new Set(),
+      abortSignal
+    )
   }
 
   private async executeWithCooldownRetry(
@@ -808,6 +819,7 @@ export class ClaudeApiService implements OnModuleInit {
     dto: CreateMessageDto,
     forwardHeaders: AnthropicForwardHeaders,
     attemptedCandidates: Set<string>,
+    abortSignal?: AbortSignal,
     candidate: ClaudeApiCandidate = this.nextCandidate(dto.model)
   ): AsyncGenerator<string, void, unknown> {
     const requestStartedAt = Date.now()
@@ -844,9 +856,18 @@ export class ClaudeApiService implements OnModuleInit {
           url,
           fetchOptions,
           180_000,
-          "Claude API stream timed out waiting for upstream response headers after 180000ms"
+          "Claude API stream timed out waiting for upstream response headers after 180000ms",
+          abortSignal
         )
       } catch (error) {
+        const abortedError = toUpstreamRequestAbortedError(
+          error,
+          abortSignal,
+          "Claude API stream aborted"
+        )
+        if (abortedError) {
+          throw abortedError
+        }
         this.logger.error(
           `[Claude API] Stream fetch failed before headers: account=${candidate.account.label || candidate.account.baseUrl}, model=${candidate.upstreamModel}, url=${url}, detail=${formatUnknownError(error)}`
         )
@@ -908,7 +929,8 @@ export class ClaudeApiService implements OnModuleInit {
           const { done, value } = await this.readStreamChunkWithTimeout(
             reader,
             180_000,
-            "Claude API stream timed out while waiting for the next SSE chunk"
+            "Claude API stream timed out while waiting for the next SSE chunk",
+            abortSignal
           )
 
           if (done) {
@@ -954,6 +976,14 @@ export class ClaudeApiService implements OnModuleInit {
         )
         return
       } catch (error) {
+        const abortedError = toUpstreamRequestAbortedError(
+          error,
+          abortSignal,
+          "Claude API stream aborted"
+        )
+        if (abortedError) {
+          throw abortedError
+        }
         this.markAccountTemporaryFailure(
           candidate.account,
           504,
@@ -977,6 +1007,7 @@ export class ClaudeApiService implements OnModuleInit {
             dto,
             forwardHeaders,
             attemptedCandidates,
+            abortSignal,
             nextCandidate
           )
           return
@@ -991,6 +1022,15 @@ export class ClaudeApiService implements OnModuleInit {
         }
       }
     } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "Claude API stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
+
       const nextCandidate =
         !emittedEvents &&
         this.shouldRetryWithNextCandidate(
@@ -1008,6 +1048,7 @@ export class ClaudeApiService implements OnModuleInit {
           dto,
           forwardHeaders,
           attemptedCandidates,
+          abortSignal,
           nextCandidate
         )
         return
@@ -2581,38 +2622,63 @@ export class ClaudeApiService implements OnModuleInit {
     url: string,
     options: RequestInit & { dispatcher?: unknown },
     timeoutMs: number,
-    timeoutMessage: string
+    timeoutMessage: string,
+    abortSignal?: AbortSignal
   ): Promise<Response> {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const requestSignal = createAbortSignalWithTimeout(timeoutMs, abortSignal)
 
     try {
-      return await fetch(url, { ...options, signal: controller.signal })
+      return await fetch(url, { ...options, signal: requestSignal.signal })
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (requestSignal.didTimeout()) {
         throw new Error(timeoutMessage)
+      }
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "Claude API request aborted"
+      )
+      if (abortedError) {
+        throw abortedError
       }
       throw error
     } finally {
-      clearTimeout(timer)
+      requestSignal.cleanup()
     }
   }
 
   private async readStreamChunkWithTimeout(
     reader: ReadableStreamDefaultReader<Uint8Array>,
     timeoutMs: number,
-    timeoutMessage: string
+    timeoutMessage: string,
+    abortSignal?: AbortSignal
   ): Promise<ReadableStreamReadResult<Uint8Array>> {
     let timer: NodeJS.Timeout | undefined
+    const externalAbort = createAbortPromise(
+      abortSignal,
+      "Claude API stream aborted"
+    )
 
     try {
       return await Promise.race([
         reader.read(),
+        ...(externalAbort.promise ? [externalAbort.promise] : []),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
         }),
       ])
+    } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "Claude API stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
+      throw error
     } finally {
+      externalAbort.cleanup()
       if (timer) {
         clearTimeout(timer)
       }

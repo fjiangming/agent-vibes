@@ -53,6 +53,12 @@ import {
   type CodexRateLimitSnapshot,
   type CodexRateLimitWindow,
 } from "../shared/backend-pool-status"
+import {
+  createAbortPromise,
+  createAbortSignalWithTimeout,
+  toUpstreamRequestAbortedError,
+  UpstreamRequestAbortedError,
+} from "../shared/abort-signal"
 import { CodexAuthService, type CodexTokenData } from "./codex-auth.service"
 import { CodexCacheService } from "./codex-cache.service"
 import { translateClaudeToCodex } from "./codex-request-translator"
@@ -1820,13 +1826,15 @@ export class CodexService implements OnModuleInit {
    * Returns an async generator yielding Claude SSE event strings.
    */
   async *sendClaudeMessageStream(
-    dto: CreateMessageDto
+    dto: CreateMessageDto,
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
-    yield* this.executeStreamWithCooldownRetry(dto, 1)
+    yield* this.executeStreamWithCooldownRetry(dto, abortSignal, 1)
   }
 
   private async *executeStreamWithCooldownRetry(
     dto: CreateMessageDto,
+    abortSignal?: AbortSignal,
     attempt: number = 1,
     slot: CodexAccountSlot = this.selectRequestSlot(
       dto.model,
@@ -1869,7 +1877,8 @@ export class CodexService implements OnModuleInit {
             codexRequest,
             modelName,
             reverseToolMap,
-            cacheId
+            cacheId,
+            abortSignal
           )) {
             emittedEvents = true
             yield event
@@ -1877,6 +1886,15 @@ export class CodexService implements OnModuleInit {
           markAccountSuccess(slot, modelName)
           return
         } catch (e) {
+          const abortedError = toUpstreamRequestAbortedError(
+            e,
+            abortSignal,
+            "Codex WebSocket stream aborted"
+          )
+          if (abortedError) {
+            throw abortedError
+          }
+
           if (e instanceof CodexWebSocketUpgradeError) {
             if (
               !this.isApiKeyMode(slot) &&
@@ -1892,7 +1910,8 @@ export class CodexService implements OnModuleInit {
                 modelName,
                 reverseToolMap,
                 cacheId,
-                true
+                true,
+                abortSignal
               )) {
                 emittedEvents = true
                 yield event
@@ -1924,13 +1943,24 @@ export class CodexService implements OnModuleInit {
         codexRequest,
         modelName,
         reverseToolMap,
-        cacheId
+        cacheId,
+        false,
+        abortSignal
       )) {
         emittedEvents = true
         yield event
       }
       markAccountSuccess(slot, modelName)
     } catch (e) {
+      const abortedError = toUpstreamRequestAbortedError(
+        e,
+        abortSignal,
+        "Codex stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
+
       if (e instanceof CodexApiError) {
         const statusCode = e.getStatus()
         markAccountCooldown(
@@ -1954,6 +1984,7 @@ export class CodexService implements OnModuleInit {
             )
             yield* this.executeStreamWithCooldownRetry(
               dto,
+              abortSignal,
               attempt + 1,
               nextSlot
             )
@@ -1975,7 +2006,8 @@ export class CodexService implements OnModuleInit {
     modelName: string,
     reverseToolMap: Map<string, string>,
     cacheId: string,
-    omitAccountId: boolean = false
+    omitAccountId: boolean = false,
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
     const requestStartedAt = Date.now()
     const requestBody = JSON.stringify(codexRequest)
@@ -1987,11 +2019,12 @@ export class CodexService implements OnModuleInit {
 
     this.logger.log(`[Codex] Stream request: model=${modelName}, url=${url}`)
 
+    const requestSignal = createAbortSignalWithTimeout(600_000, abortSignal)
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
       method: "POST",
       headers,
       body: requestBody,
-      signal: AbortSignal.timeout(600_000),
+      signal: requestSignal.signal,
     }
 
     const agent = this.buildProxyAgent(slot)
@@ -1999,75 +2032,110 @@ export class CodexService implements OnModuleInit {
       fetchOptions.dispatcher = agent
     }
 
-    const response = await fetch(url, fetchOptions)
-
-    if (!response.ok) {
-      const errorBody = await response.text()
-      this.logger.error(
-        `[Codex] Stream request failed: status=${response.status}, body=${errorBody.slice(0, 500)}`
-      )
-
-      if (
-        !omitAccountId &&
-        !this.isApiKeyMode(slot) &&
-        this.isDeactivatedWorkspaceError(errorBody)
-      ) {
-        this.logger.warn(
-          `[Codex] deactivated_workspace for ${this.getAccountLabel(slot)}, retrying stream without Chatgpt-Account-Id`
-        )
-        yield* this.streamViaHttp(
-          slot,
-          token,
-          codexRequest,
-          modelName,
-          reverseToolMap,
-          cacheId,
-          true
-        )
-        return
-      }
-
-      throw this.createCodexApiError(response.status, errorBody)
-    }
-
-    if (!response.body) {
-      throw new Error("Codex response has no body")
-    }
-
-    // Capture rate-limit headers from successful response
-    this.captureCodexRateLimitHeaders(response.headers, slot)
-
-    // Stream SSE events
     const state = createStreamState()
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ""
 
     try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      const response = await fetch(url, fetchOptions)
 
-        buffer += decoder.decode(value, { stream: true })
+      if (!response.ok) {
+        const errorBody = await response.text()
+        this.logger.error(
+          `[Codex] Stream request failed: status=${response.status}, body=${errorBody.slice(0, 500)}`
+        )
 
-        const lines = buffer.split("\n")
-        buffer = lines.pop() || ""
+        if (
+          !omitAccountId &&
+          !this.isApiKeyMode(slot) &&
+          this.isDeactivatedWorkspaceError(errorBody)
+        ) {
+          this.logger.warn(
+            `[Codex] deactivated_workspace for ${this.getAccountLabel(slot)}, retrying stream without Chatgpt-Account-Id`
+          )
+          yield* this.streamViaHttp(
+            slot,
+            token,
+            codexRequest,
+            modelName,
+            reverseToolMap,
+            cacheId,
+            true,
+            abortSignal
+          )
+          return
+        }
 
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed) continue
+        throw this.createCodexApiError(response.status, errorBody)
+      }
 
+      if (!response.body) {
+        throw new Error("Codex response has no body")
+      }
+
+      // Capture rate-limit headers from successful response
+      this.captureCodexRateLimitHeaders(response.headers, slot)
+
+      // Stream SSE events
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      try {
+        while (true) {
+          const externalAbort = createAbortPromise(
+            abortSignal,
+            "Codex HTTP stream aborted"
+          )
+          try {
+            const { done, value } = await Promise.race([
+              reader.read(),
+              ...(externalAbort.promise ? [externalAbort.promise] : []),
+            ])
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+
+            const lines = buffer.split("\n")
+            buffer = lines.pop() || ""
+
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed) continue
+
+              this.logCodexUsage(
+                "http",
+                modelName,
+                cacheId,
+                slot,
+                this.parseCodexSsePayload(trimmed),
+                requestStartedAt
+              )
+
+              const claudeEvents = translateCodexSseEvent(
+                trimmed,
+                state,
+                reverseToolMap
+              )
+              for (const event of claudeEvents) {
+                yield event
+              }
+            }
+          } finally {
+            externalAbort.cleanup()
+          }
+        }
+
+        // Process remaining buffer
+        if (buffer.trim()) {
           this.logCodexUsage(
             "http",
             modelName,
             cacheId,
             slot,
-            this.parseCodexSsePayload(trimmed),
+            this.parseCodexSsePayload(buffer.trim()),
             requestStartedAt
           )
-
           const claudeEvents = translateCodexSseEvent(
-            trimmed,
+            buffer.trim(),
             state,
             reverseToolMap
           )
@@ -2075,29 +2143,26 @@ export class CodexService implements OnModuleInit {
             yield event
           }
         }
+      } finally {
+        reader.releaseLock()
       }
-
-      // Process remaining buffer
-      if (buffer.trim()) {
-        this.logCodexUsage(
-          "http",
-          modelName,
-          cacheId,
-          slot,
-          this.parseCodexSsePayload(buffer.trim()),
-          requestStartedAt
+    } catch (error) {
+      if (requestSignal.didTimeout()) {
+        throw new Error(
+          "Codex stream timed out waiting for upstream response after 600000ms"
         )
-        const claudeEvents = translateCodexSseEvent(
-          buffer.trim(),
-          state,
-          reverseToolMap
-        )
-        for (const event of claudeEvents) {
-          yield event
-        }
       }
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "Codex HTTP stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
+      throw error
     } finally {
-      reader.releaseLock()
+      requestSignal.cleanup()
     }
 
     this.logger.log(
@@ -2116,7 +2181,8 @@ export class CodexService implements OnModuleInit {
     codexRequest: Record<string, unknown>,
     modelName: string,
     reverseToolMap: Map<string, string>,
-    cacheId: string
+    cacheId: string,
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
     const requestStartedAt = Date.now()
     const httpUrl = this.buildUrl(slot, "responses")
@@ -2140,8 +2206,20 @@ export class CodexService implements OnModuleInit {
     )
 
     const state = createStreamState()
+    const onAbort = () => {
+      ws.close()
+    }
 
     try {
+      if (abortSignal?.aborted) {
+        throw new UpstreamRequestAbortedError(
+          abortSignal.reason instanceof Error
+            ? abortSignal.reason.message
+            : "Codex WebSocket stream aborted"
+        )
+      }
+
+      abortSignal?.addEventListener("abort", onAbort, { once: true })
       const wsBody = this.wsService.buildWebSocketRequestBody(codexRequest)
 
       for await (const msg of this.wsService.streamViaWebSocket(ws, wsBody)) {
@@ -2165,7 +2243,16 @@ export class CodexService implements OnModuleInit {
           yield event
         }
       }
+
+      if (abortSignal?.aborted) {
+        throw new UpstreamRequestAbortedError(
+          abortSignal.reason instanceof Error
+            ? abortSignal.reason.message
+            : "Codex WebSocket stream aborted"
+        )
+      }
     } finally {
+      abortSignal?.removeEventListener("abort", onAbort)
       ws.close()
     }
 

@@ -11,7 +11,9 @@ export function backendRequiresCompleteToolBatchBeforeContinuation(
   return (
     backend === "google" ||
     backend === "google-claude" ||
-    backend === "claude-api"
+    backend === "claude-api" ||
+    backend === "codex" ||
+    backend === "openai-compat"
   )
 }
 

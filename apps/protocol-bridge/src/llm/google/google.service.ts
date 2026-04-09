@@ -11,6 +11,7 @@ import {
   resolveCloudCodeModel,
 } from "../model-registry"
 import { ProcessPoolService } from "../native/process-pool.service"
+import { UpstreamRequestAbortedError } from "../shared/abort-signal"
 import { BackendApiError } from "../shared/backend-errors"
 import { findPendingToolUseIdsInMessages } from "../tool-continuation-policy"
 import { ANTIGRAVITY_SYSTEM_PROMPT } from "./antigravity-system-prompt"
@@ -3658,7 +3659,8 @@ export class GoogleService {
     )
   }
   async *sendClaudeMessageStream(
-    dto: CreateMessageDto
+    dto: CreateMessageDto,
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
     if (!this.processPool.isConfigured()) {
       throw new HttpException(
@@ -3863,13 +3865,18 @@ export class GoogleService {
           await this.processPool.generateStream(
             payload,
             onChunkHandler,
-            resolvedModel
+            resolvedModel,
+            abortSignal
           )
           // Mark this worker as preferred for future requests with this model
           self.processPool.markSuccessForModel(resolvedModel)
           self.clearConversationRecovery(dto, resolvedModel)
           return // success
         } catch (err) {
+          if (err instanceof UpstreamRequestAbortedError) {
+            throw err
+          }
+
           const errMsg = (err as Error).message || ""
           const isLast = workerAttempt >= maxWorkerRetries - 1
 
@@ -4248,6 +4255,16 @@ export class GoogleService {
         }
       })
       .catch((err) => {
+        if (err instanceof UpstreamRequestAbortedError) {
+          fatalRequestError = err
+          streamDone = true
+          if (resolveWaiting) {
+            resolveWaiting()
+            resolveWaiting = null
+          }
+          return
+        }
+
         const errMsg = (err as Error).message || ""
         self.logger.error(`Streaming failed (all workers exhausted): ${errMsg}`)
         fatalRequestError =
@@ -4280,6 +4297,9 @@ export class GoogleService {
 
     const finalizedFatalRequestError: unknown = fatalRequestError
     if (finalizedFatalRequestError) {
+      if (finalizedFatalRequestError instanceof UpstreamRequestAbortedError) {
+        throw finalizedFatalRequestError
+      }
       if (
         typeof finalizedFatalRequestError === "object" &&
         finalizedFatalRequestError !== null &&

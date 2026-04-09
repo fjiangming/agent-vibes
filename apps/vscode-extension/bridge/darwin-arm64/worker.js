@@ -94,6 +94,7 @@ let config = null
 let endpoint = null
 let cloudaicompanionProject = null
 let oauthTokensListener = null
+const activeStreamRequests = new Map()
 const LOAD_CODE_ASSIST_CACHE_TTL_MS = 10_000
 const loadCodeAssistCache = new Map()
 const loadCodeAssistInflight = new Map()
@@ -620,6 +621,31 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function sleepWithAbort(ms, signal) {
+  if (!signal) {
+    return sleep(ms)
+  }
+  if (signal.aborted) {
+    return Promise.reject(
+      normalizeAbortReason("streamGenerateContent", signal, "stream aborted")
+    )
+  }
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timeout)
+      signal.removeEventListener("abort", onAbort)
+      reject(
+        normalizeAbortReason("streamGenerateContent", signal, "stream aborted")
+      )
+    }
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
 function normalizeAbortReason(apiMethod, signal, fallbackLabel) {
   const reason = signal?.reason
   if (reason instanceof Error) return reason
@@ -795,18 +821,25 @@ async function cloudCodeRequest(apiMethod, payload) {
  * Make streaming request to Cloud Code API (SSE) with retry
  * Replicates streaming generateContent from Antigravity IDE
  */
-async function* cloudCodeStreamRequest(apiMethod, payload) {
+async function* cloudCodeStreamRequest(
+  apiMethod,
+  payload,
+  abortSignal = undefined
+) {
   let lastError = null
   let retryDelayMs = null
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (abortSignal?.aborted) {
+      throw normalizeAbortReason(apiMethod, abortSignal, "stream aborted")
+    }
     if (attempt > 0) {
       const delay = retryDelayMs ?? BASE_DELAY_MS * Math.pow(2, attempt - 1)
       retryDelayMs = null
       process.stderr.write(
         `[retry] ${apiMethod} stream attempt ${attempt + 1}/${MAX_RETRIES + 1} after ${delay}ms\n`
       )
-      await sleep(delay)
+      await sleepWithAbort(delay, abortSignal)
     }
 
     const url = `${endpoint}/v1internal:${apiMethod}?alt=sse`
@@ -818,6 +851,9 @@ async function* cloudCodeStreamRequest(apiMethod, payload) {
     )
 
     const controller = new AbortController()
+    const requestSignal = abortSignal
+      ? AbortSignal.any([controller.signal, abortSignal])
+      : controller.signal
     let timeout = null
     const clearStreamTimeout = () => {
       if (timeout) {
@@ -838,7 +874,7 @@ async function* cloudCodeStreamRequest(apiMethod, payload) {
     try {
       armStreamTimeout(STREAM_FIRST_CHUNK_TIMEOUT_MS, "first chunk")
       response = await oauthClient.request(
-        buildCloudCodeRequestOptions(url, body, "stream", controller.signal)
+        buildCloudCodeRequestOptions(url, body, "stream", requestSignal)
       )
 
       if (isSuccessfulResponse(response)) {
@@ -895,13 +931,17 @@ async function* cloudCodeStreamRequest(apiMethod, payload) {
       }
     } catch (error) {
       clearStreamTimeout()
+      const abortSource = abortSignal?.aborted ? abortSignal : controller.signal
       lastError =
-        controller.signal.aborted || isAbortLikeError(error)
-          ? normalizeAbortReason(apiMethod, controller.signal, "stream aborted")
+        abortSource.aborted || isAbortLikeError(error)
+          ? normalizeAbortReason(apiMethod, abortSource, "stream aborted")
           : error instanceof Error
             ? error
             : new Error(String(error))
 
+      if (abortSignal?.aborted) {
+        throw lastError
+      }
       if (attempt === MAX_RETRIES) {
         break
       }
@@ -1004,18 +1044,45 @@ async function handleGenerateStream(id, params) {
   if (!oauthClient) throw new Error("Worker not initialized")
   // Use streamGenerateContent (confirmed by traffic capture) — forward SSE chunks directly
   const payload = buildStreamPayload(params.payload)
+  const requestController = new AbortController()
+  activeStreamRequests.set(id, requestController)
   process.stderr.write(
     `[DEBUG] streamGenerateContent stream: project=${payload.project}, model=${payload.model}\n`
   )
-  for await (const chunk of cloudCodeStreamRequest(
-    "streamGenerateContent",
-    payload
-  )) {
-    // Unwrap outer response wrapper before forwarding
-    const inner = chunk.response || chunk
-    sendMessage({ id, stream: inner })
+  try {
+    for await (const chunk of cloudCodeStreamRequest(
+      "streamGenerateContent",
+      payload,
+      requestController.signal
+    )) {
+      // Unwrap outer response wrapper before forwarding
+      const inner = chunk.response || chunk
+      sendMessage({ id, stream: inner })
+    }
+    sendMessage({ id, stream: null }) // signal stream end
+  } finally {
+    activeStreamRequests.delete(id)
   }
-  sendMessage({ id, stream: null }) // signal stream end
+}
+
+async function handleCancelRequest(params) {
+  const requestId =
+    params && typeof params.requestId === "string"
+      ? params.requestId.trim()
+      : ""
+  if (!requestId) {
+    throw new Error("cancelRequest requires requestId")
+  }
+  const reason =
+    params && typeof params.reason === "string" && params.reason.trim()
+      ? params.reason.trim()
+      : `Cloud Code request ${requestId} cancelled`
+  const controller = activeStreamRequests.get(requestId)
+  if (!controller) {
+    return { cancelled: false }
+  }
+  controller.abort(new Error(reason))
+  return { cancelled: true }
 }
 
 /**
@@ -1175,6 +1242,9 @@ async function handleRequest(request) {
       case "generateStream":
         await handleGenerateStream(id, params)
         return // streaming responses sent inline
+      case "cancelRequest":
+        result = await handleCancelRequest(params)
+        break
       case "loadCodeAssist":
         result = await handleLoadCodeAssist(params)
         break
