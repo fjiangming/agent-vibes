@@ -3,7 +3,11 @@ import { Injectable, Logger } from "@nestjs/common"
 import * as crypto from "crypto"
 import * as path from "path"
 import {
-  ConversationTruncatorService,
+  type ContextAttachmentSnapshot,
+  ContextManagerService,
+  type ContextUsageSnapshot,
+  extractText,
+  type LooseMessageContent,
   normalizeToolProtocolMessages,
   TokenCounterService,
   ToolIntegrityService,
@@ -25,7 +29,10 @@ import {
   type WriteResult,
 } from "../../gen/agent/v1_pb"
 import { CodexService } from "../../llm/codex/codex.service"
-import { ClaudeApiService } from "../../llm/claude-api/claude-api.service"
+import {
+  ClaudeApiService,
+  DEFAULT_CLAUDE_API_CONTEXT_LIMIT_TOKENS,
+} from "../../llm/claude-api/claude-api.service"
 import { OpenaiCompatService } from "../../llm/openai-compat/openai-compat.service"
 import { GoogleService } from "../../llm/google/google.service"
 import {
@@ -33,9 +40,11 @@ import {
   ModelRouteResult,
   ModelRouterService,
 } from "../../llm/model-router.service"
+import { UpstreamRequestAbortedError } from "../../llm/shared/abort-signal"
 import { backendRequiresCompleteToolBatchBeforeContinuation } from "../../llm/tool-continuation-policy"
 import { CreateMessageDto } from "../anthropic/dto/create-message.dto"
 import { generateTraceId } from "./agent-helpers"
+import { BackendStreamAbortRegistry } from "./backend-stream-abort-registry"
 import { normalizeBugfixResultItems as normalizeBugfixResultItemsFromContract } from "./bugfix-result-normalizer"
 import {
   ChatSession,
@@ -62,6 +71,7 @@ import {
 import { KvStorageService } from "./kv-storage.service"
 import {
   buildMcpDispatchInput,
+  normalizeMcpToolIdentifier,
   resolveMcpCallFields as resolveMcpCallFieldsFromContract,
   resolveMcpToolDefinition,
 } from "./mcp-call-contract"
@@ -98,6 +108,12 @@ interface SseEventData {
   content_block?: SseContentBlock
   delta?: SseDelta
   index?: number
+  usage?: {
+    input_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+    output_tokens?: number
+  }
 }
 
 /**
@@ -151,7 +167,7 @@ type MessageContentItem =
 /**
  * Message content type - compatible with chat-session.manager.ts
  */
-type MessageContent = string | Array<{ type: string; [key: string]: unknown }>
+type MessageContent = LooseMessageContent
 
 type ToolResultStatus =
   | "success"
@@ -209,6 +225,9 @@ type InlineWebToolFamily = "web_search" | "web_fetch"
 
 type DeferredToolFamily =
   | InlineWebToolFamily
+  | "get_mcp_tools"
+  | "read_url_content"
+  | "view_content_chunk"
   | "fetch"
   | "record_screen"
   | "computer_use"
@@ -286,6 +305,7 @@ type ToolDispatchOutcome = "waiting_for_result" | "completed_inline"
 interface ToolInvocationDispatchParams {
   conversationId: string
   session: ChatSession
+  streamId?: string
   toolCall: ActiveToolCall
   accumulatedText: string
   checkpointModel: string
@@ -294,12 +314,36 @@ interface ToolInvocationDispatchParams {
 
 interface HandleToolResultOptions {
   continueGeneration?: boolean
+  streamId?: string
+}
+
+interface BackendStreamOptions {
+  buildDtoForRoute?: (route: ModelRouteResult) => CreateMessageDto
+  abortSignal?: AbortSignal
+  streamAbortBinding?: {
+    conversationId: string
+    streamId: string
+  }
 }
 
 interface ExecDispatchTarget {
   toolName: string
   input: Record<string, unknown>
-  toolFamilyHint?: "mcp"
+  toolFamilyHint?: "mcp" | "web_fetch"
+}
+
+interface CanonicalToolInvocation {
+  toolName: string
+  input: Record<string, unknown>
+}
+
+interface LegacyWebDocument {
+  id: string
+  url: string
+  title: string
+  contentType: string
+  chunks: string[]
+  createdAt: number
 }
 
 interface ExecDispatchResolution {
@@ -391,6 +435,7 @@ interface JsonSchemaProperty {
 @Injectable()
 export class CursorConnectStreamService {
   private readonly logger = new Logger(CursorConnectStreamService.name)
+  private readonly backendStreamAbortRegistry = new BackendStreamAbortRegistry()
   private lastHeartbeatLog = 0
   private readonly HEARTBEAT_LOG_INTERVAL = 60000 // Log heartbeat once per minute
   private readonly KEEPALIVE_INTERVAL = 10000 // 每10秒发送心跳
@@ -418,6 +463,18 @@ export class CursorConnectStreamService {
   private readonly LARGE_TOOL_RESULT_HEAD_LINES = 220
   private readonly LARGE_TOOL_RESULT_TAIL_LINES = 120
   private readonly LARGE_TOOL_RESULT_SAMPLE_MAX_CHARS = 24_000
+  private readonly LEGACY_WEB_DOCUMENT_CHUNK_SIZE = 4_000
+  private readonly MAX_LEGACY_WEB_DOCUMENTS_PER_CONVERSATION = 12
+  private readonly EMPTY_CONTEXT_ATTACHMENT_SNAPSHOT: ContextAttachmentSnapshot =
+    {
+      readPaths: [],
+      fileStates: [],
+      todos: [],
+    }
+  private readonly legacyWebDocumentsByConversation = new Map<
+    string,
+    Map<string, LegacyWebDocument>
+  >()
   private modelCallIdCounter = 0
 
   /**
@@ -439,7 +496,7 @@ export class CursorConnectStreamService {
     private readonly openaiCompatService: OpenaiCompatService,
     private readonly modelRouter: ModelRouterService,
     private readonly kvStorageService: KvStorageService,
-    private readonly truncator: ConversationTruncatorService,
+    private readonly contextManager: ContextManagerService,
     private readonly clientSideToolV2Executor: ClientSideToolV2ExecutorService,
     private readonly semanticSearchProvider: SemanticSearchProviderService,
     private readonly tokenCounter: TokenCounterService,
@@ -758,10 +815,13 @@ export class CursorConnectStreamService {
   private async *executeBackendStreamWithFallback(
     dto: CreateMessageDto,
     route: ModelRouteResult,
-    attemptedBackends: Set<string> = new Set()
+    attemptedBackends: Set<string> = new Set(),
+    options?: BackendStreamOptions
   ): AsyncGenerator<string, void, unknown> {
     attemptedBackends.add(route.backend)
-    const routedDto = { ...dto, model: route.model }
+    const routedDto = options?.buildDtoForRoute
+      ? options.buildDtoForRoute(route)
+      : { ...dto, model: route.model }
     // Buffer envelope events (message_start, ping) AND structural events
     // (content_block_start, content_block_stop) so we can discard them on
     // fallback.  Only once a content_block_delta arrives (i.e., actual
@@ -795,7 +855,9 @@ export class CursorConnectStreamService {
           `Routing to Claude API backend for model: ${route.model}`
         )
         for await (const event of this.claudeApiService.sendClaudeMessageStream(
-          routedDto
+          routedDto,
+          {},
+          options?.abortSignal
         )) {
           yield* handleEvent(event)
         }
@@ -810,7 +872,8 @@ export class CursorConnectStreamService {
           `Routing to OpenAI-compat backend for model: ${route.model}`
         )
         for await (const event of this.openaiCompatService.sendClaudeMessageStream(
-          routedDto
+          routedDto,
+          options?.abortSignal
         )) {
           yield* handleEvent(event)
         }
@@ -823,7 +886,8 @@ export class CursorConnectStreamService {
       if (route.backend === "codex") {
         this.logger.log(`Routing to Codex backend for model: ${route.model}`)
         for await (const event of this.codexService.sendClaudeMessageStream(
-          routedDto
+          routedDto,
+          options?.abortSignal
         )) {
           yield* handleEvent(event)
         }
@@ -835,7 +899,8 @@ export class CursorConnectStreamService {
 
       this.logger.log(`Routing to Google backend for model: ${route.model}`)
       for await (const event of this.googleService.sendClaudeMessageStream(
-        routedDto
+        routedDto,
+        options?.abortSignal
       )) {
         yield* handleEvent(event)
       }
@@ -843,6 +908,9 @@ export class CursorConnectStreamService {
         for (const b of buffer) yield b
       }
     } catch (error) {
+      if (error instanceof UpstreamRequestAbortedError) {
+        throw error
+      }
       const fallback = this.modelRouter.getFallbackRoute(
         dto.model,
         route.backend
@@ -866,7 +934,8 @@ export class CursorConnectStreamService {
         yield* this.executeBackendStreamWithFallback(
           dto,
           fallback,
-          attemptedBackends
+          attemptedBackends,
+          options
         )
         return
       }
@@ -879,11 +948,149 @@ export class CursorConnectStreamService {
    * Get the appropriate message stream based on model
    * Uses ModelRouterService for centralized routing logic
    */
-  private getBackendStream(
-    dto: CreateMessageDto
+  private async *getBackendStream(
+    dto: CreateMessageDto,
+    options?: BackendStreamOptions
   ): AsyncGenerator<string, void, unknown> {
     const route = this.modelRouter.resolveModel(dto.model)
-    return this.executeBackendStreamWithFallback(dto, route)
+    const registration = options?.streamAbortBinding
+      ? this.backendStreamAbortRegistry.register(
+          options.streamAbortBinding.conversationId,
+          options.streamAbortBinding.streamId
+        )
+      : null
+
+    try {
+      yield* this.executeBackendStreamWithFallback(dto, route, new Set(), {
+        ...options,
+        abortSignal: registration?.controller.signal ?? options?.abortSignal,
+      })
+    } finally {
+      registration?.release()
+    }
+  }
+
+  private buildPromptContextFromSession(session: ChatSession): PromptContext {
+    return {
+      projectContext: session.projectContext,
+      codeChunks: session.codeChunks,
+      cursorRules: session.cursorRules,
+      cursorCommands: session.cursorCommands,
+      customSystemPrompt: session.customSystemPrompt,
+      explicitContext: session.explicitContext,
+      mcpToolDefs: session.mcpToolDefs,
+    }
+  }
+
+  private buildSubAgentStreamingDtoForRoute(
+    session: ChatSession,
+    ctx: SubAgentContext,
+    conversationId: string,
+    streamRoute: ModelRouteResult
+  ): CreateMessageDto {
+    const dto = this.buildStreamingDtoForRoute(streamRoute, {
+      model: ctx.model,
+      promptContext: this.buildPromptContextFromSession(session),
+      conversationId,
+      session,
+      thinkingLevel: session.thinkingLevel,
+      buildMessages: (budget) => {
+        const compacted = this.contextManager.buildBackendMessagesFromMessages(
+          ctx.messages.map((message) => ({
+            role: message.role,
+            content: message.content as UnifiedMessage["content"],
+          })) as UnifiedMessage[],
+          this.EMPTY_CONTEXT_ATTACHMENT_SNAPSHOT,
+          {
+            maxTokens: budget.maxTokens,
+            systemPromptTokens: budget.systemPromptTokens,
+            strategy: "auto",
+          }
+        )
+
+        return compacted.messages as CreateMessageDto["messages"]
+      },
+    })
+
+    dto.max_tokens = Math.min(8192, dto.max_tokens ?? 8192)
+    return dto
+  }
+
+  private buildStreamingDtoForRoute(
+    route: ModelRouteResult,
+    options: {
+      model: string
+      promptContext: PromptContext
+      conversationId?: string
+      session?: ChatSession
+      toolDefinitions?: CreateMessageDto["tools"]
+      pendingToolUseIds?: string[]
+      thinkingLevel?: number
+      buildMessages: (budget: {
+        maxTokens: number
+        systemPromptTokens: number
+        maxOutputTokens: number
+      }) => CreateMessageDto["messages"]
+    }
+  ): CreateMessageDto {
+    const useGoogleContextMessages = this.isCloudCodeBackend(route.backend)
+    const contextMessages =
+      useGoogleContextMessages && options.conversationId
+        ? this.buildGoogleContextMessages(
+            options.promptContext,
+            options.conversationId
+          )
+        : []
+    const systemPrompt = useGoogleContextMessages
+      ? this.buildGoogleSystemPrompt(options.promptContext)
+      : this.buildSystemPrompt(options.promptContext)
+    const budget = this.resolveMessageBudget(route.backend, {
+      session: options.session,
+      contextTokens: contextMessages.length
+        ? this.tokenCounter.countMessages(contextMessages as UnifiedMessage[])
+        : 0,
+      systemPrompt,
+      toolDefinitions: options.toolDefinitions,
+      model: options.model,
+    })
+
+    const dto: CreateMessageDto = {
+      model: route.model,
+      messages: [
+        ...contextMessages,
+        ...options.buildMessages(budget),
+      ] as CreateMessageDto["messages"],
+      system: systemPrompt || undefined,
+      max_tokens: budget.maxOutputTokens,
+      stream: true,
+    }
+
+    if (options.toolDefinitions) {
+      dto.tools = options.toolDefinitions
+    }
+    if (options.conversationId) {
+      dto._conversationId = options.conversationId
+    }
+    dto._contextTokenBudget = budget.maxTokens
+    dto._protectedContextMessageCount = contextMessages.length || undefined
+    if (options.pendingToolUseIds && options.pendingToolUseIds.length > 0) {
+      dto._pendingToolUseIds = options.pendingToolUseIds
+    }
+
+    if ((options.thinkingLevel || 0) > 0) {
+      const thinkingConfig = this.buildCursorThinkingConfig(
+        options.thinkingLevel || 0,
+        route.model
+      )
+      if (thinkingConfig) {
+        dto.thinking = thinkingConfig.thinking
+        if (thinkingConfig.output_config) {
+          dto.output_config = thinkingConfig.output_config
+        }
+      }
+    }
+
+    return dto
   }
 
   private normalizePositiveInteger(value: unknown): number | undefined {
@@ -896,9 +1103,21 @@ export class CursorConnectStreamService {
     return this.tokenCounter.countJsonValue(value)
   }
 
-  private getBackendContextLimit(backend: BackendType): number | undefined {
+  private getBackendContextLimit(
+    backend: BackendType,
+    model?: string
+  ): number | undefined {
     if (backend === "google" || backend === "google-claude") {
       return this.CLOUD_CODE_CONTEXT_LIMIT_TOKENS
+    }
+    if (backend === "claude-api" && model) {
+      return (
+        this.claudeApiService.getConfiguredMaxContextTokens(model) ??
+        DEFAULT_CLAUDE_API_CONTEXT_LIMIT_TOKENS
+      )
+    }
+    if (backend === "openai-compat") {
+      return this.openaiCompatService.getConfiguredMaxContextTokens(model)
     }
     return undefined
   }
@@ -907,7 +1126,7 @@ export class CursorConnectStreamService {
     let backendLimit: number | undefined
     try {
       const route = this.modelRouter.resolveModel(session.model)
-      backendLimit = this.getBackendContextLimit(route.backend)
+      backendLimit = this.getBackendContextLimit(route.backend, session.model)
     } catch (error) {
       this.logger.warn(
         `Failed to resolve backend for checkpoint budget (model=${session.model}): ${String(error)}`
@@ -958,6 +1177,7 @@ export class CursorConnectStreamService {
       contextTokens?: number
       systemPrompt?: string
       toolDefinitions?: unknown
+      model?: string
     }
   ): {
     maxTokens: number
@@ -969,7 +1189,10 @@ export class CursorConnectStreamService {
       this.normalizePositiveInteger(options?.session?.contextTokenLimit)
 
     let maxTokens = protocolContextLimit || this.DEFAULT_HISTORY_MAX_TOKENS
-    const backendContextLimit = this.getBackendContextLimit(backend)
+    const backendContextLimit = this.getBackendContextLimit(
+      backend,
+      options?.model
+    )
     if (backendContextLimit && maxTokens > backendContextLimit) {
       this.logger.warn(
         `Cursor protocol context limit ${maxTokens} exceeds backend cap ${backendContextLimit}, clamping`
@@ -987,7 +1210,7 @@ export class CursorConnectStreamService {
 
     const contextTokens = options?.contextTokens || 0
     const protocolSystemPromptTokens = options?.systemPrompt
-      ? this.truncator.countTokens([
+      ? this.tokenCounter.countMessages([
           {
             role: "user",
             content: options.systemPrompt,
@@ -1028,6 +1251,83 @@ export class CursorConnectStreamService {
     return { maxTokens, systemPromptTokens, maxOutputTokens }
   }
 
+  private buildContextAttachmentSnapshot(
+    session: ChatSession
+  ): ContextAttachmentSnapshot {
+    return {
+      activeSubAgent: session.subAgentContext
+        ? {
+            subagentId: session.subAgentContext.subagentId,
+            model: session.subAgentContext.model,
+            turnCount: session.subAgentContext.turnCount,
+            toolCallCount: session.subAgentContext.toolCallCount,
+            modifiedFiles: [...session.subAgentContext.modifiedFiles],
+            pendingToolCallIds: Array.from(
+              session.subAgentContext.expectedToolCallIds
+            ),
+          }
+        : undefined,
+      readPaths: Array.from(session.readPaths),
+      fileStates: Array.from(session.fileStates.entries()).map(
+        ([path, state]) => ({
+          path,
+          beforeContent: state.beforeContent,
+          afterContent: state.afterContent,
+        })
+      ),
+      todos: session.todos.map((todo) => ({
+        content: todo.content,
+        status: todo.status,
+      })),
+    }
+  }
+
+  private extractUsageSnapshot(
+    event: SseEvent
+  ): ContextUsageSnapshot | undefined {
+    const usage = event.data.usage
+    if (!usage) return undefined
+
+    const inputTokens =
+      typeof usage.input_tokens === "number"
+        ? Math.max(0, usage.input_tokens)
+        : 0
+    const cachedInputTokens =
+      typeof usage.cache_read_input_tokens === "number"
+        ? Math.max(0, usage.cache_read_input_tokens)
+        : 0
+    const cacheCreationInputTokens =
+      typeof usage.cache_creation_input_tokens === "number"
+        ? Math.max(0, usage.cache_creation_input_tokens)
+        : 0
+    const outputTokens =
+      typeof usage.output_tokens === "number"
+        ? Math.max(0, usage.output_tokens)
+        : 0
+
+    if (
+      inputTokens === 0 &&
+      cachedInputTokens === 0 &&
+      cacheCreationInputTokens === 0 &&
+      outputTokens === 0
+    ) {
+      return undefined
+    }
+
+    return {
+      inputTokens,
+      cachedInputTokens,
+      cacheCreationInputTokens,
+      outputTokens,
+      totalTokens:
+        inputTokens +
+        cachedInputTokens +
+        cacheCreationInputTokens +
+        outputTokens,
+      recordedAt: Date.now(),
+    }
+  }
+
   private isCloudCodeBackend(backend: BackendType): boolean {
     return backend === "google" || backend === "google-claude"
   }
@@ -1048,6 +1348,66 @@ export class CursorConnectStreamService {
       `pendingToolCalls=${session.pendingToolCalls.size}, ` +
       `pendingInteractionQueries=${session.pendingInteractionQueries.size}`
     )
+  }
+
+  private summarizeStreamId(streamId: string | undefined): string {
+    return streamId ? streamId.substring(0, 8) : "(none)"
+  }
+
+  private abortBackendRequestsForSupersededStreams(
+    conversationId: string,
+    streamId: string,
+    context: string
+  ): void {
+    const abortedCount = this.backendStreamAbortRegistry.abortOtherStreams(
+      conversationId,
+      streamId,
+      `Superseded by stream ${this.summarizeStreamId(streamId)} during ${context}`
+    )
+    if (abortedCount > 0) {
+      this.logger.log(
+        `Aborted ${abortedCount} backend request(s) for superseded stream(s) on ${conversationId} during ${context}`
+      )
+    }
+  }
+
+  private abortBackendRequestsForStream(
+    conversationId: string,
+    streamId: string,
+    context: string
+  ): void {
+    const abortedCount = this.backendStreamAbortRegistry.abortStream(
+      conversationId,
+      streamId,
+      `Stream ${this.summarizeStreamId(streamId)} aborted during ${context}`
+    )
+    if (abortedCount > 0) {
+      this.logger.log(
+        `Aborted ${abortedCount} backend request(s) for stream ${this.summarizeStreamId(streamId)} on ${conversationId} during ${context}`
+      )
+    }
+  }
+
+  private shouldAbortSupersededStream(
+    conversationId: string,
+    streamId: string | undefined,
+    context: string
+  ): boolean {
+    if (!streamId) {
+      return false
+    }
+
+    const currentStreamId =
+      this.sessionManager.getCurrentStreamId(conversationId)
+    if (!currentStreamId || currentStreamId === streamId) {
+      return false
+    }
+
+    this.logger.warn(
+      `Stopping superseded stream for ${conversationId} during ${context}: ` +
+        `${this.summarizeStreamId(streamId)} != ${this.summarizeStreamId(currentStreamId)}`
+    )
+    return true
   }
 
   private *maybeEmitCloudCodeProtocolRecoveryQuery(
@@ -1184,9 +1544,7 @@ export class CursorConnectStreamService {
       if (Array.isArray(message.content)) {
         const nonTextBlock = message.content.find((b) => b.type !== "text")
         if (nonTextBlock) return null
-        return message.content
-          .map((b) => (typeof b.text === "string" ? b.text : ""))
-          .join("\n")
+        return extractText(message.content)
       }
 
       return null
@@ -1211,9 +1569,7 @@ export class CursorConnectStreamService {
       return null
     }
 
-    return content
-      .map((block) => (typeof block.text === "string" ? block.text : ""))
-      .join("\n")
+    return extractText(content)
   }
 
   private isTransientAssistantInfrastructureText(text: string): boolean {
@@ -1410,6 +1766,54 @@ export class CursorConnectStreamService {
     })
   }
 
+  private removeHistoricalToolUseForReinjection(
+    session: ChatSession,
+    toolCallId: string
+  ): boolean {
+    let removed = false
+
+    const rewrittenMessages = session.messages.flatMap((message) => {
+      if (message.role !== "assistant" || !Array.isArray(message.content)) {
+        return [message]
+      }
+
+      const filtered = message.content.filter((block) => {
+        if (!block || typeof block !== "object") return true
+        return !(
+          block.type === "tool_use" &&
+          typeof block.id === "string" &&
+          block.id === toolCallId
+        )
+      })
+
+      if (filtered.length === message.content.length) {
+        return [message]
+      }
+
+      removed = true
+      if (filtered.length === 0) {
+        return []
+      }
+
+      return [
+        {
+          ...message,
+          content: filtered as MessageContent,
+        },
+      ]
+    })
+
+    if (!removed) {
+      return false
+    }
+
+    this.sessionManager.replaceMessages(
+      session.conversationId,
+      rewrittenMessages
+    )
+    return true
+  }
+
   private appendToolResultWithIntegrity(
     session: ChatSession,
     toolCallId: string,
@@ -1423,8 +1827,13 @@ export class CursorConnectStreamService {
       lastMessage.role !== "assistant" ||
       !this.messageHasToolUse(lastMessage.content, toolCallId)
     ) {
+      const relocatedHistoricalToolUse =
+        this.removeHistoricalToolUseForReinjection(session, toolCallId)
+
       this.logger.warn(
-        `Tool protocol repair: injecting synthetic assistant tool_use before tool_result (${toolCallId})`
+        relocatedHistoricalToolUse
+          ? `Tool protocol repair: relocating existing assistant tool_use before tool_result (${toolCallId})`
+          : `Tool protocol repair: injecting synthetic assistant tool_use before tool_result (${toolCallId})`
       )
       const syntheticToolUse: MessageContentItem[] = [
         {
@@ -1548,7 +1957,10 @@ export class CursorConnectStreamService {
         if (missingResults.length === 0) continue
         repairedMessages[i + 1] = {
           ...nextMessage,
-          content: [...nextMessage.content, ...missingResults],
+          content: [
+            ...nextMessage.content,
+            ...missingResults,
+          ] as MessageContent,
         }
         changed = true
         continue
@@ -1610,77 +2022,138 @@ export class CursorConnectStreamService {
   }
 
   private truncateMessagesForBackend(
-    conversationId: string,
+    session: ChatSession,
     backend: BackendType,
-    messages: Array<{ role: "user" | "assistant"; content: MessageContent }>,
     budget: { maxTokens: number; systemPromptTokens: number },
     options?: {
-      preferSummary?: boolean
       contextLabel?: string
       pendingToolUseIds?: string[]
+      strategy?: "auto" | "manual" | "reactive"
     }
   ): Array<{ role: "user" | "assistant"; content: MessageContent }> {
-    // All backends now go through protocol-layer truncation.
-    // GoogleService.enforceTokenBudget() remains as a safety net for edge cases.
-
-    const preferSummary = options?.preferSummary ?? false
-    const contextLabel = options?.contextLabel || conversationId
+    const contextLabel = options?.contextLabel || session.conversationId
     const integrityMode = this.isCloudCodeBackend(backend)
       ? "strict-adjacent"
       : "global"
-
-    const primary = preferSummary
-      ? this.truncator.truncate(conversationId, messages as UnifiedMessage[], {
-          systemPromptTokens: budget.systemPromptTokens,
-          maxTokens: budget.maxTokens,
-          pendingToolUseIds: options?.pendingToolUseIds,
-          integrityMode,
-        })
-      : this.truncator.truncateInMemory(messages as UnifiedMessage[], {
-          systemPromptTokens: budget.systemPromptTokens,
-          maxTokens: budget.maxTokens,
-          pendingToolUseIds: options?.pendingToolUseIds,
-          integrityMode,
-        })
+    const primary = this.contextManager.buildBackendMessages(
+      session.contextState,
+      this.buildContextAttachmentSnapshot(session),
+      {
+        systemPromptTokens: budget.systemPromptTokens,
+        maxTokens: budget.maxTokens,
+        pendingToolUseIds: options?.pendingToolUseIds,
+        integrityMode,
+        strategy: options?.strategy || "auto",
+      }
+    )
+    if (primary.wasCompacted) {
+      this.sessionManager.markContextStateDirty(session.conversationId)
+      this.logger.log(
+        `Applied context compaction (${contextLabel}): estimated ${primary.estimatedTokens} tokens after projection`
+      )
+    }
 
     const truncatedMessages = primary.messages as Array<{
       role: "user" | "assistant"
       content: MessageContent
     }>
 
-    if (primary.was_truncated) {
-      this.logger.log(
-        `Applied truncation (${contextLabel}): ${primary.original_token_count} -> ${primary.truncated_token_count} tokens`
-      )
-
-      // Post-truncation integrity repair: fix any orphaned tool blocks.
-      // Cloud Code Claude requires strict assistant(tool_use) -> next
-      // user(tool_result) adjacency, so do not preserve merely "global"
-      // matches there.
-      const postTruncNormalized = normalizeToolProtocolMessages(
-        truncatedMessages as Array<{
-          role: "user" | "assistant"
-          content: unknown
-        }>,
-        {
-          mode: integrityMode,
-          pendingToolUseIds: options?.pendingToolUseIds,
-        }
-      )
-      if (postTruncNormalized.changed) {
-        this.logger.warn(
-          `Post-truncation integrity repair (${contextLabel}, mode=${integrityMode}): ` +
-            `injected ${postTruncNormalized.injectedToolResults} synthetic tool_result, ` +
-            `removed ${postTruncNormalized.removedToolResults} orphan tool_result`
-        )
-        return postTruncNormalized.messages as Array<{
-          role: "user" | "assistant"
-          content: MessageContent
-        }>
+    const postTruncNormalized = normalizeToolProtocolMessages(
+      truncatedMessages as Array<{
+        role: "user" | "assistant"
+        content: unknown
+      }>,
+      {
+        mode: integrityMode,
+        pendingToolUseIds: options?.pendingToolUseIds,
       }
+    )
+    if (postTruncNormalized.changed) {
+      this.logger.warn(
+        `Post-projection integrity repair (${contextLabel}, mode=${integrityMode}): ` +
+          `injected ${postTruncNormalized.injectedToolResults} synthetic tool_result, ` +
+          `removed ${postTruncNormalized.removedToolResults} orphan tool_result`
+      )
+      const repairedMessages = postTruncNormalized.messages as Array<{
+        role: "user" | "assistant"
+        content: MessageContent
+      }>
+      this.updatePendingRequestContextLedger(
+        session,
+        primary.projectedMessages,
+        repairedMessages
+      )
+      return repairedMessages
     }
 
+    this.updatePendingRequestContextLedger(
+      session,
+      primary.projectedMessages,
+      truncatedMessages
+    )
     return truncatedMessages
+  }
+
+  private updatePendingRequestContextLedger(
+    session: ChatSession,
+    projectedMessages: Array<{
+      role: "user" | "assistant"
+      content: MessageContent
+      source?: string
+      attachmentKind?: string
+    }>,
+    finalMessages: Array<{
+      role: "user" | "assistant"
+      content: MessageContent
+    }>
+  ): void {
+    const projectionLedger = this.contextManager.buildProjectionLedger(
+      session.contextState,
+      projectedMessages as Parameters<
+        ContextManagerService["buildProjectionLedger"]
+      >[1]
+    )
+
+    session.pendingRequestContextLedger = {
+      promptTokenCount: this.tokenCounter.countMessages(
+        finalMessages.map((message) => ({
+          role: message.role,
+          content: message.content as UnifiedMessage["content"],
+        })) as UnifiedMessage[]
+      ),
+      recordedCompactionId: projectionLedger.recordedCompactionId,
+      attachmentFingerprint: projectionLedger.attachmentFingerprint,
+    }
+  }
+
+  private commitAssistantUsageLedger(
+    session: ChatSession,
+    assistantRecordId: string,
+    usage: ContextUsageSnapshot,
+    assistantContent: UnifiedMessage["content"]
+  ): void {
+    this.contextManager.recordAssistantUsage(
+      session.contextState,
+      assistantRecordId,
+      usage,
+      {
+        promptTokenCount: session.pendingRequestContextLedger?.promptTokenCount,
+        recordedCompactionId:
+          session.pendingRequestContextLedger?.recordedCompactionId,
+        attachmentFingerprint:
+          session.pendingRequestContextLedger?.attachmentFingerprint,
+        assistantMessage: {
+          role: "assistant",
+          content: assistantContent,
+        },
+      }
+    )
+    this.sessionManager.recordAssistantResponseUsage(
+      session.conversationId,
+      assistantRecordId,
+      usage,
+      session.contextState.usageLedger
+    )
   }
 
   private buildUserInputTooLargeMessage(estimatedTokens: number): string {
@@ -1973,7 +2446,7 @@ ${raw}
         if (filtered.length === 0) {
           continue
         }
-        nextContent = filtered
+        nextContent = filtered as MessageContent
       }
 
       const previous = compacted[compacted.length - 1]
@@ -2124,10 +2597,37 @@ ${raw}
     )
   }
 
+  private recordCompletedTurnIfNeeded(
+    session: ChatSession,
+    shouldRecordTurn: boolean,
+    contextLabel: string
+  ): ChatSession {
+    const activeSession =
+      this.sessionManager.getSession(session.conversationId) || session
+
+    if (!shouldRecordTurn) {
+      this.logger.debug(
+        `Skipping turn append for ${activeSession.conversationId} (${contextLabel}): no durable assistant response was persisted`
+      )
+      return activeSession
+    }
+
+    const turnId = this.generateTurnId(
+      activeSession.conversationId,
+      activeSession.turns.length
+    )
+    this.sessionManager.addTurn(activeSession.conversationId, turnId)
+    return (
+      this.sessionManager.getSession(activeSession.conversationId) ||
+      activeSession
+    )
+  }
+
   private *finalizeAssistantContinuationTurn(
     session: ChatSession,
     conversationId: string,
-    text?: string
+    text?: string,
+    usage?: ContextUsageSnapshot
   ): Generator<Buffer> {
     const activeSession =
       this.cleanSessionHistoryForTransientAssistantInfrastructureMessages(
@@ -2135,8 +2635,9 @@ ${raw}
         `finalizeAssistantContinuationTurn: ${conversationId}`
       )
 
+    let assistantRecordId: string | undefined
     if (text && !this.isTransientAssistantInfrastructureText(text)) {
-      this.sessionManager.addMessage(
+      assistantRecordId = this.sessionManager.addMessage(
         activeSession.conversationId,
         "assistant",
         text
@@ -2146,17 +2647,25 @@ ${raw}
         `Skipping persistence of transient assistant infrastructure text during continuation finalization for ${conversationId}`
       )
     }
+    if (assistantRecordId && usage) {
+      this.commitAssistantUsageLedger(
+        activeSession,
+        assistantRecordId,
+        usage,
+        text || ""
+      )
+    }
 
-    const turnId = this.generateTurnId(
-      activeSession.conversationId,
-      activeSession.turns.length
+    const completedSession = this.recordCompletedTurnIfNeeded(
+      activeSession,
+      !!assistantRecordId,
+      `continuation finalization: ${conversationId}`
     )
-    this.sessionManager.addTurn(activeSession.conversationId, turnId)
 
     yield this.buildConversationCheckpoint(
-      activeSession,
+      completedSession,
       conversationId,
-      activeSession.model
+      completedSession.model
     )
     yield this.grpcService.createServerHeartbeatResponse()
     yield this.grpcService.createAgentTurnEndedResponse()
@@ -2200,26 +2709,26 @@ ${raw}
       )
     }
 
-    const turnId = this.generateTurnId(
-      activeSession.conversationId,
-      activeSession.turns.length
+    const completedSession = this.recordCompletedTurnIfNeeded(
+      activeSession,
+      shouldPersist,
+      `final text response: ${activeSession.conversationId}`
     )
-    this.sessionManager.addTurn(activeSession.conversationId, turnId)
 
     const checkpoint = this.grpcService.createConversationCheckpointResponse(
-      activeSession.conversationId,
-      activeSession.model,
+      completedSession.conversationId,
+      completedSession.model,
       {
-        messageBlobIds: activeSession.messageBlobIds,
-        usedTokens: activeSession.usedTokens || 0,
-        maxTokens: this.resolveCheckpointMaxTokens(activeSession),
-        workspaceUri: activeSession.projectContext?.rootPath
-          ? `file://${activeSession.projectContext.rootPath}`
+        messageBlobIds: completedSession.messageBlobIds,
+        usedTokens: completedSession.usedTokens || 0,
+        maxTokens: this.resolveCheckpointMaxTokens(completedSession),
+        workspaceUri: completedSession.projectContext?.rootPath
+          ? `file://${completedSession.projectContext.rootPath}`
           : undefined,
-        readPaths: Array.from(activeSession.readPaths),
-        fileStates: Object.fromEntries(activeSession.fileStates),
-        turns: activeSession.turns,
-        todos: activeSession.todos,
+        readPaths: Array.from(completedSession.readPaths),
+        fileStates: Object.fromEntries(completedSession.fileStates),
+        turns: completedSession.turns,
+        todos: completedSession.todos,
       }
     )
     yield checkpoint
@@ -2628,11 +3137,158 @@ ${raw}
     return undefined
   }
 
+  private normalizeLegacyWebDocumentToolName(
+    toolName: string
+  ): "read_url_content" | "view_content_chunk" | undefined {
+    const snake = toolName
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+    const compact = toolName.toLowerCase().replace(/[^a-z0-9]+/g, "")
+
+    if (
+      snake.includes("read_url_content") ||
+      compact.includes("readurlcontent")
+    ) {
+      return "read_url_content"
+    }
+    if (
+      snake.includes("view_content_chunk") ||
+      compact.includes("viewcontentchunk")
+    ) {
+      return "view_content_chunk"
+    }
+    return undefined
+  }
+
+  private hasMeaningfulInlineFetchHeaders(
+    input: Record<string, unknown>
+  ): boolean {
+    const candidates = [
+      input.headers,
+      input.header,
+      input.requestHeaders,
+      input.request_headers,
+    ]
+
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      if (typeof candidate === "string" && candidate.trim().length > 0) {
+        return true
+      }
+      if (Array.isArray(candidate) && candidate.length > 0) {
+        return true
+      }
+      if (
+        typeof candidate === "object" &&
+        candidate !== null &&
+        Object.keys(candidate as Record<string, unknown>).length > 0
+      ) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private hasMeaningfulInlineFetchBody(
+    input: Record<string, unknown>
+  ): boolean {
+    const bodyRaw = input.body ?? input.data ?? input.payload
+    if (bodyRaw === undefined || bodyRaw === null) return false
+    if (typeof bodyRaw === "string") return bodyRaw.trim().length > 0
+    if (typeof bodyRaw === "number" || typeof bodyRaw === "boolean") {
+      return true
+    }
+    if (typeof bodyRaw === "bigint") return true
+    if (Array.isArray(bodyRaw)) return bodyRaw.length > 0
+    if (Buffer.isBuffer(bodyRaw)) return bodyRaw.length > 0
+    if (typeof bodyRaw === "object") {
+      return Object.keys(bodyRaw as Record<string, unknown>).length > 0
+    }
+    return false
+  }
+
+  private shouldCanonicalizeFetchAsWebFetch(
+    input: Record<string, unknown>
+  ): boolean {
+    const rawUrl =
+      this.pickFirstString(input, [
+        "url",
+        "Url",
+        "document_id",
+        "documentId",
+      ]) || ""
+    if (!rawUrl) return false
+
+    let parsed: URL
+    try {
+      parsed = new URL(rawUrl)
+    } catch {
+      return false
+    }
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false
+    }
+
+    const method =
+      (
+        this.pickFirstString(input, ["method", "httpMethod", "http_method"]) ||
+        "GET"
+      )
+        .trim()
+        .toUpperCase() || "GET"
+
+    if (method !== "GET") return false
+    if (this.hasMeaningfulInlineFetchHeaders(input)) return false
+    if (this.hasMeaningfulInlineFetchBody(input)) return false
+
+    return true
+  }
+
+  private canonicalizeToolInvocation(
+    toolName: string,
+    input: Record<string, unknown>
+  ): CanonicalToolInvocation {
+    const family = this.normalizeDeferredToolFamily(toolName)
+    if (family === "fetch" && this.shouldCanonicalizeFetchAsWebFetch(input)) {
+      return {
+        toolName: "web_fetch",
+        input,
+      }
+    }
+
+    if (family === "exa_search") {
+      return {
+        toolName: "web_search",
+        input: {
+          ...input,
+          query:
+            this.pickFirstString(input, [
+              "query",
+              "searchTerm",
+              "search_term",
+            ]) || "",
+        },
+      }
+    }
+
+    return {
+      toolName,
+      input,
+    }
+  }
+
   private normalizeDeferredToolFamily(
     toolName: string
   ): DeferredToolFamily | undefined {
     const webFamily = this.normalizeInlineWebToolFamily(toolName)
     if (webFamily) return webFamily
+
+    const legacyWebDocumentFamily =
+      this.normalizeLegacyWebDocumentToolName(toolName)
+    if (legacyWebDocumentFamily) return legacyWebDocumentFamily
 
     const definitionKey = resolveCursorToolDefinitionKey(toolName)
     if (definitionKey) {
@@ -2664,6 +3320,8 @@ ${raw}
           return "exa_search"
         case "CLIENT_SIDE_TOOL_V2_EXA_FETCH":
           return "exa_fetch"
+        case "CLIENT_SIDE_TOOL_V2_GET_MCP_TOOLS":
+          return "get_mcp_tools"
         case "CLIENT_SIDE_TOOL_V2_SETUP_VM_ENVIRONMENT":
           return "setup_vm_environment"
         case "CLIENT_SIDE_TOOL_V2_TODO_READ":
@@ -2731,6 +3389,9 @@ ${raw}
     }
     if (snake.includes("exa_fetch") || compact.includes("exafetch")) {
       return "exa_fetch"
+    }
+    if (snake.includes("get_mcp_tools") || compact.includes("getmcptools")) {
+      return "get_mcp_tools"
     }
     if (
       snake === "fetch" ||
@@ -3667,6 +4328,201 @@ ${raw}
     }
   }
 
+  private splitLegacyWebDocumentIntoChunks(content: string): string[] {
+    const normalized = content.trim()
+    if (!normalized) return [""]
+
+    const chunkSize = Math.max(1, this.LEGACY_WEB_DOCUMENT_CHUNK_SIZE)
+    const chunks: string[] = []
+    for (let cursor = 0; cursor < normalized.length; cursor += chunkSize) {
+      chunks.push(normalized.slice(cursor, cursor + chunkSize).trim())
+    }
+
+    return chunks.filter((chunk) => chunk.length > 0)
+  }
+
+  private storeLegacyWebDocument(
+    conversationId: string,
+    doc: {
+      url: string
+      title: string
+      contentType: string
+      content: string
+    }
+  ): LegacyWebDocument {
+    const chunks = this.splitLegacyWebDocumentIntoChunks(doc.content)
+    const storedDoc: LegacyWebDocument = {
+      id: `doc_${crypto.randomUUID()}`,
+      url: doc.url,
+      title: doc.title,
+      contentType: doc.contentType,
+      chunks: chunks.length > 0 ? chunks : [""],
+      createdAt: Date.now(),
+    }
+
+    let conversationDocs =
+      this.legacyWebDocumentsByConversation.get(conversationId)
+    if (!conversationDocs) {
+      conversationDocs = new Map<string, LegacyWebDocument>()
+      this.legacyWebDocumentsByConversation.set(
+        conversationId,
+        conversationDocs
+      )
+    }
+
+    conversationDocs.set(storedDoc.id, storedDoc)
+    while (
+      conversationDocs.size > this.MAX_LEGACY_WEB_DOCUMENTS_PER_CONVERSATION
+    ) {
+      const oldestDocumentId = conversationDocs.keys().next().value
+      if (!oldestDocumentId) break
+      conversationDocs.delete(oldestDocumentId)
+    }
+
+    return storedDoc
+  }
+
+  private getLegacyWebDocument(
+    conversationId: string,
+    documentId: string
+  ): LegacyWebDocument | undefined {
+    return this.legacyWebDocumentsByConversation
+      .get(conversationId)
+      ?.get(documentId)
+  }
+
+  private async executeInlineReadUrlContent(
+    conversationId: string,
+    input: Record<string, unknown>
+  ): Promise<{
+    content: string
+    state: { status: ToolResultStatus; message?: string }
+  }> {
+    const url = this.pickFirstString(input, ["url", "Url"]) || ""
+    if (!url) {
+      return {
+        content: "[read_url_content error] Missing required Url parameter",
+        state: { status: "error", message: "missing Url" },
+      }
+    }
+
+    try {
+      const doc = await this.fetchUrlDocument(url)
+      const storedDoc = this.storeLegacyWebDocument(conversationId, doc)
+      const firstChunk = storedDoc.chunks[0] || "[empty document]"
+      const totalChunks = storedDoc.chunks.length
+
+      input.url = doc.url
+      input.Url = doc.url
+      input.document_id = storedDoc.id
+      input.documentId = storedDoc.id
+      input.chunk_count = totalChunks
+      input.chunkCount = totalChunks
+
+      const lines = [
+        "[read_url_content success]",
+        `DocumentId: ${storedDoc.id}`,
+        `URL: ${doc.url}`,
+        `Title: ${doc.title || "(unknown)"}`,
+        `Content-Type: ${doc.contentType || "unknown"}`,
+        `Chunk: 1/${totalChunks}`,
+      ]
+
+      if (totalChunks > 1) {
+        lines.push(
+          `Use view_content_chunk with document_id="${storedDoc.id}" and position=2..${totalChunks} to continue reading. Positions are 1-based; position=0 also returns the first chunk.`
+        )
+      }
+
+      lines.push("", firstChunk)
+
+      return {
+        content: lines.join("\n"),
+        state: { status: "success" },
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return {
+        content: `[read_url_content error] ${message}`,
+        state: { status: "error", message },
+      }
+    }
+  }
+
+  private executeInlineViewContentChunk(
+    conversationId: string,
+    input: Record<string, unknown>
+  ): {
+    content: string
+    state: { status: ToolResultStatus; message?: string }
+  } {
+    const documentId =
+      this.pickFirstString(input, ["document_id", "documentId"]) || ""
+    if (!documentId) {
+      return {
+        content:
+          "[view_content_chunk error] Missing required document_id parameter",
+        state: { status: "error", message: "missing document_id" },
+      }
+    }
+
+    const requestedPosition = this.pickFirstNumber(input, [
+      "position",
+      "chunk_position",
+      "chunkPosition",
+    ])
+    if (requestedPosition === undefined) {
+      return {
+        content:
+          "[view_content_chunk error] Missing required position parameter",
+        state: { status: "error", message: "missing position" },
+      }
+    }
+
+    const storedDoc = this.getLegacyWebDocument(conversationId, documentId)
+    if (!storedDoc) {
+      return {
+        content:
+          `[view_content_chunk error] Unknown DocumentId: ${documentId}. ` +
+          "Call read_url_content first in the same conversation.",
+        state: { status: "error", message: "unknown document_id" },
+      }
+    }
+
+    const chunkIndex = requestedPosition <= 0 ? 0 : requestedPosition - 1
+    if (chunkIndex < 0 || chunkIndex >= storedDoc.chunks.length) {
+      return {
+        content:
+          `[view_content_chunk error] position ${requestedPosition} is out of range. ` +
+          `Available positions: 1-${storedDoc.chunks.length} (or 0 for the first chunk).`,
+        state: { status: "error", message: "position out of range" },
+      }
+    }
+
+    const chunkNumber = chunkIndex + 1
+    const lines = [
+      "[view_content_chunk success]",
+      `DocumentId: ${storedDoc.id}`,
+      `URL: ${storedDoc.url}`,
+      `Title: ${storedDoc.title || "(unknown)"}`,
+      `Chunk: ${chunkNumber}/${storedDoc.chunks.length}`,
+    ]
+    if (chunkNumber < storedDoc.chunks.length) {
+      lines.push(`Next chunk position: ${chunkNumber + 1}`)
+    }
+    lines.push("", storedDoc.chunks[chunkIndex] || "[empty document]")
+
+    input.document_id = storedDoc.id
+    input.documentId = storedDoc.id
+    input.position = chunkNumber
+    input.chunkIndex = chunkIndex
+
+    return {
+      content: lines.join("\n"),
+      state: { status: "success" },
+    }
+  }
+
   private async executeInlineWebTool(
     conversationId: string,
     toolName: string,
@@ -4592,17 +5448,18 @@ ${raw}
         `[SubAgent] ${subagentId} turn ${ctx.turnCount}/${MAX_TURNS}`
       )
 
-      // Build DTO for this turn
-      const dto: CreateMessageDto = {
-        model: ctx.model,
-        messages: ctx.messages.map((m) => ({
-          role: m.role,
-          content: m.content as any,
-        })),
-        max_tokens: 8192,
-        stream: true,
-        _conversationId: conversationId,
-      }
+      const buildSubAgentDtoForRoute = (
+        streamRoute: ModelRouteResult
+      ): CreateMessageDto =>
+        this.buildSubAgentStreamingDtoForRoute(
+          session,
+          ctx,
+          conversationId,
+          streamRoute
+        )
+
+      const route = this.modelRouter.resolveModel(ctx.model)
+      const dto = buildSubAgentDtoForRoute(route)
 
       let fullText = ""
       const toolCalls: Array<{
@@ -4617,7 +5474,9 @@ ${raw}
       } | null = null
 
       try {
-        const stream = this.getBackendStream(dto)
+        const stream = this.getBackendStream(dto, {
+          buildDtoForRoute: buildSubAgentDtoForRoute,
+        })
 
         for await (const sseEventStr of stream) {
           const event = this.parseSseEvent(sseEventStr)
@@ -4792,6 +5651,8 @@ ${raw}
     const DEFERRED_TOOL_MAP: Record<string, DeferredToolFamily> = {
       web_search: "web_search",
       web_fetch: "web_fetch",
+      read_url_content: "read_url_content",
+      view_content_chunk: "view_content_chunk",
       fetch: "fetch",
       read_file: "read_semsearch_files",
       list_dir: "file_search",
@@ -5642,6 +6503,111 @@ ${raw}
     }
   }
 
+  private executeInlineGetMcpTools(
+    conversationId: string,
+    input: Record<string, unknown>
+  ): {
+    content: string
+    state: { status: ToolResultStatus; message?: string }
+  } {
+    const session = this.sessionManager.getSession(conversationId)
+    if (!session) {
+      return {
+        content: "[get_mcp_tools error] Session not found",
+        state: { status: "error", message: "session not found" },
+      }
+    }
+
+    const serverFilter =
+      this.pickFirstString(input, [
+        "server",
+        "serverName",
+        "server_name",
+        "providerIdentifier",
+        "provider_identifier",
+      ]) || ""
+    const toolNameFilter =
+      this.pickFirstString(input, ["tool_name", "toolName", "name"]) || ""
+    const pattern = this.pickFirstString(input, ["pattern", "query"]) || ""
+
+    input.server = serverFilter
+    input.tool_name = toolNameFilter
+    input.pattern = pattern
+
+    const normalizedServerFilter = normalizeMcpToolIdentifier(serverFilter)
+    const normalizedToolNameFilter = normalizeMcpToolIdentifier(toolNameFilter)
+    const normalizedPattern = normalizeMcpToolIdentifier(pattern)
+    const lowerPattern = pattern.toLowerCase()
+    const defs = session.mcpToolDefs || []
+
+    const filteredDefs = defs.filter((def) => {
+      const normalizedProvider = normalizeMcpToolIdentifier(
+        def.providerIdentifier || ""
+      )
+      const normalizedToolName = normalizeMcpToolIdentifier(def.toolName || "")
+      const normalizedName = normalizeMcpToolIdentifier(def.name || "")
+      const matchesServer =
+        !normalizedServerFilter ||
+        normalizedProvider === normalizedServerFilter ||
+        normalizedProvider.includes(normalizedServerFilter) ||
+        normalizedServerFilter.includes(normalizedProvider)
+      const matchesToolName =
+        !normalizedToolNameFilter ||
+        normalizedToolName === normalizedToolNameFilter ||
+        normalizedToolName.includes(normalizedToolNameFilter) ||
+        normalizedName === normalizedToolNameFilter
+
+      if (!matchesServer || !matchesToolName) {
+        return false
+      }
+
+      if (!pattern) {
+        return true
+      }
+
+      const haystacks = [
+        def.name || "",
+        def.toolName || "",
+        def.providerIdentifier || "",
+        def.description || "",
+      ]
+      return haystacks.some((value) => {
+        const lowered = value.toLowerCase()
+        return (
+          lowered.includes(lowerPattern) ||
+          normalizeMcpToolIdentifier(value).includes(normalizedPattern)
+        )
+      })
+    })
+
+    const payload: Record<string, unknown> = {
+      total: filteredDefs.length,
+      tools: filteredDefs.map((def) => ({
+        server: def.providerIdentifier,
+        tool_name: def.toolName,
+        name: def.name,
+        description: def.description,
+        input_schema: def.inputSchema || {
+          type: "object",
+          properties: {},
+        },
+      })),
+    }
+
+    if (serverFilter || toolNameFilter || pattern) {
+      payload.filters = {
+        ...(serverFilter ? { server: serverFilter } : {}),
+        ...(toolNameFilter ? { tool_name: toolNameFilter } : {}),
+        ...(pattern ? { pattern } : {}),
+      }
+    }
+
+    return {
+      content: JSON.stringify(payload, null, 2),
+      state: { status: "success" },
+    }
+  }
+
   private executeInlineReflect(input: Record<string, unknown>): {
     content: string
     state: { status: ToolResultStatus; message?: string }
@@ -5760,6 +6726,12 @@ ${raw}
     if (family === "web_search" || family === "web_fetch") {
       return this.executeInlineWebTool(conversationId, toolName, input)
     }
+    if (family === "read_url_content") {
+      return this.executeInlineReadUrlContent(conversationId, input)
+    }
+    if (family === "view_content_chunk") {
+      return this.executeInlineViewContentChunk(conversationId, input)
+    }
     if (family === "fetch") {
       return this.executeInlineFetch(input)
     }
@@ -5774,6 +6746,11 @@ ${raw}
     }
     if (family === "exa_fetch") {
       return this.executeInlineExaFetch(input)
+    }
+    if (family === "get_mcp_tools") {
+      return Promise.resolve(
+        this.executeInlineGetMcpTools(conversationId, input)
+      )
     }
     if (family === "todo_read") {
       return this.executeInlineTodoRead(conversationId, input)
@@ -6394,6 +7371,14 @@ ${raw}
 
     const rawQuery =
       this.pickFirstString(input, ["query", "search_term", "searchTerm"]) || ""
+    const readUrl = this.pickFirstString(input, ["url", "Url"]) || ""
+    const documentId =
+      this.pickFirstString(input, ["document_id", "documentId"]) || ""
+    const position = this.pickFirstNumber(input, [
+      "position",
+      "chunk_position",
+      "chunkPosition",
+    ])
     const query =
       family === "web_search" || family === "exa_search"
         ? this.normalizeWebSearchQueryForUserIntent(conversationId, rawQuery)
@@ -6441,6 +7426,36 @@ ${raw}
         toolCallId,
         `[${family} error] Missing required query/pattern parameter`,
         { status: "error", message: "missing query/pattern" }
+      )
+      return true
+    }
+
+    if (family === "read_url_content" && !readUrl) {
+      yield* this.emitInlineToolResult(
+        conversationId,
+        toolCallId,
+        "[read_url_content error] Missing required Url parameter",
+        { status: "error", message: "missing Url" }
+      )
+      return true
+    }
+
+    if (family === "view_content_chunk" && !documentId) {
+      yield* this.emitInlineToolResult(
+        conversationId,
+        toolCallId,
+        "[view_content_chunk error] Missing required document_id parameter",
+        { status: "error", message: "missing document_id" }
+      )
+      return true
+    }
+
+    if (family === "view_content_chunk" && position === undefined) {
+      yield* this.emitInlineToolResult(
+        conversationId,
+        toolCallId,
+        "[view_content_chunk error] Missing required position parameter",
+        { status: "error", message: "missing position" }
       )
       return true
     }
@@ -6573,7 +7588,8 @@ ${raw}
 
   private appendAssistantToolUseMessage(
     conversationId: string,
-    toolCall: ActiveToolCall,
+    toolCallId: string,
+    toolName: string,
     input: Record<string, unknown>,
     accumulatedText: string
   ): void {
@@ -6586,8 +7602,8 @@ ${raw}
     }
     messageContent.push({
       type: "tool_use",
-      id: toolCall.id,
-      name: toolCall.name,
+      id: toolCallId,
+      name: toolName,
       input: input,
     })
     this.sessionManager.addMessage(conversationId, "assistant", messageContent)
@@ -6598,15 +7614,16 @@ ${raw}
     session: ChatSession,
     checkpointModel: string,
     workspaceRootPath: string | undefined,
-    toolCall: ActiveToolCall,
+    toolCallId: string,
+    toolName: string,
     input: Record<string, unknown>
   ): Buffer {
     const checkpointData = {
       messageBlobIds: session.messageBlobIds,
       pendingToolCalls: [
         {
-          id: toolCall.id,
-          name: toolCall.name,
+          id: toolCallId,
+          name: toolName,
           input,
         },
       ],
@@ -6673,15 +7690,33 @@ ${raw}
     const {
       conversationId,
       session,
+      streamId,
       toolCall,
       accumulatedText,
       checkpointModel,
       workspaceRootPath,
     } = params
 
-    const input = this.parseToolInputJson(toolCall.inputJson)
+    if (
+      this.shouldAbortSupersededStream(
+        conversationId,
+        streamId,
+        `tool dispatch ${toolCall.id}`
+      )
+    ) {
+      return "completed_inline"
+    }
 
-    const deferredToolFamily = this.normalizeDeferredToolFamily(toolCall.name)
+    const rawInput = this.parseToolInputJson(toolCall.inputJson)
+    const canonicalInvocation = this.canonicalizeToolInvocation(
+      toolCall.name,
+      rawInput
+    )
+    const canonicalToolName = canonicalInvocation.toolName
+    const input = canonicalInvocation.input
+
+    const deferredToolFamily =
+      this.normalizeDeferredToolFamily(canonicalToolName)
     if (deferredToolFamily === "glob_search") {
       this.primeGlobDeferredInputForProtocol(conversationId, input)
     }
@@ -6690,13 +7725,13 @@ ${raw}
     }
     const execDispatchResolution = this.resolveExecDispatchTarget(
       session,
-      toolCall.name,
+      canonicalToolName,
       input
     )
     const execDispatchTarget = execDispatchResolution.target
     const dispatchErrorMessage = execDispatchResolution.errorMessage
     const canDispatchExec = Boolean(execDispatchTarget)
-    const protocolToolName = execDispatchTarget?.toolName || toolCall.name
+    const protocolToolName = execDispatchTarget?.toolName || canonicalToolName
     const protocolToolInput = execDispatchTarget?.input || input
     const protocolToolFamilyHint = execDispatchTarget?.toolFamilyHint
 
@@ -6747,13 +7782,15 @@ ${raw}
       session,
       checkpointModel,
       workspaceRootPath,
-      toolCall,
+      toolCall.id,
+      protocolToolName,
       input
     )
 
     this.appendAssistantToolUseMessage(
       conversationId,
-      toolCall,
+      toolCall.id,
+      protocolToolName,
       input,
       accumulatedText
     )
@@ -6762,7 +7799,7 @@ ${raw}
       const handledInline = yield* this.runDeferredToolIfNeeded(
         conversationId,
         toolCall.id,
-        toolCall.name,
+        protocolToolName,
         input
       )
       if (handledInline) {
@@ -6832,6 +7869,89 @@ ${raw}
     yield stepCompleted
   }
 
+  private *emitShellToolDelta(
+    toolCallId: string,
+    pendingToolCall: PendingToolCall | undefined,
+    deltaType: "stdout" | "stderr",
+    content: string
+  ): Generator<Buffer> {
+    if (!content) return
+
+    const toolCallDelta = this.grpcService.createToolCallDeltaResponse(
+      toolCallId,
+      pendingToolCall?.toolName || "shell",
+      deltaType,
+      content,
+      pendingToolCall?.modelCallId || ""
+    )
+    if (toolCallDelta.length > 0) {
+      yield toolCallDelta
+    }
+  }
+
+  private extractShellResultPayload(
+    toolResult: ParsedToolResult
+  ): { stdout: string; stderr: string; exitCode: number } | null {
+    if (!toolResult.resultData || toolResult.resultData.length === 0) {
+      return null
+    }
+
+    try {
+      const execMsg = fromBinary(ExecClientMessageSchema, toolResult.resultData)
+      if (execMsg.message.case !== "shellResult") {
+        return null
+      }
+
+      const shellResult = execMsg.message.value.result
+      if (shellResult.case === "success") {
+        return {
+          stdout: shellResult.value.stdout || "",
+          stderr: shellResult.value.stderr || "",
+          exitCode: shellResult.value.exitCode ?? 0,
+        }
+      }
+      if (shellResult.case === "failure") {
+        return {
+          stdout: shellResult.value.stdout || "",
+          stderr: shellResult.value.stderr || "",
+          exitCode: shellResult.value.exitCode ?? 1,
+        }
+      }
+      if (shellResult.case === "rejected") {
+        return {
+          stdout: "",
+          stderr: shellResult.value.reason || "",
+          exitCode: 126,
+        }
+      }
+      if (shellResult.case === "permissionDenied") {
+        return {
+          stdout: "",
+          stderr: shellResult.value.error || "",
+          exitCode: 126,
+        }
+      }
+      if (shellResult.case === "spawnError") {
+        return {
+          stdout: "",
+          stderr: shellResult.value.error || "",
+          exitCode: 127,
+        }
+      }
+      if (shellResult.case === "timeout") {
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: 124,
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Failed to parse shell result: ${String(error)}`)
+    }
+
+    return null
+  }
+
   /**
    * Handle bidirectional streaming chat
    * This is the main entry point for ConnectRPC streaming
@@ -6845,6 +7965,7 @@ ${raw}
     inputMessages: AsyncIterable<Buffer>
   ): AsyncGenerator<Buffer> {
     let conversationId: string | undefined
+    let streamId: string | undefined
     let isFirstMessage = true
 
     try {
@@ -6859,6 +7980,17 @@ ${raw}
           continue
         }
 
+        if (
+          conversationId &&
+          this.shouldAbortSupersededStream(
+            conversationId,
+            streamId,
+            "incoming client message"
+          )
+        ) {
+          return
+        }
+
         // Handle Agent control messages (heartbeats, stream close)
         if (parsed.isAgentControlMessage) {
           // Resume/control requests may arrive first on a retried stream.
@@ -6866,8 +7998,19 @@ ${raw}
           if (!conversationId && parsed.conversationId) {
             conversationId = parsed.conversationId
             this.sessionManager.getOrCreateSession(conversationId, parsed)
+            streamId = this.sessionManager.rotateStreamId(conversationId)
+            this.abortBackendRequestsForSupersededStreams(
+              conversationId,
+              streamId,
+              "control-first bidi stream attached"
+            )
+            const reboundCount =
+              this.sessionManager.rebindPendingToolCallsToCurrentStream(
+                conversationId
+              )
             this.logger.log(
-              `BiDi control stream attached to conversation: ${conversationId}`
+              `BiDi control stream attached to conversation: ${conversationId} ` +
+                `(streamId=${this.summarizeStreamId(streamId)}, reboundPending=${reboundCount})`
             )
             isFirstMessage = false
           }
@@ -7009,7 +8152,7 @@ ${raw}
             `Received tool result: ${parsed.toolResults[0]!.toolCallId || "(will match by order)"}`
           )
           try {
-            yield* this.handleToolResult(conversationId, parsed)
+            yield* this.handleToolResult(conversationId, parsed, { streamId })
           } catch (error) {
             const sessionAfterToolError =
               this.sessionManager.getSession(conversationId)
@@ -7089,7 +8232,12 @@ ${raw}
             )
 
             // Rotate the stream ID so we can detect orphaned tool calls from closed streams
-            this.sessionManager.rotateStreamId(conversationId)
+            streamId = this.sessionManager.rotateStreamId(conversationId)
+            this.abortBackendRequestsForSupersededStreams(
+              conversationId,
+              streamId,
+              "new bidi stream attached"
+            )
 
             // Agent mode: send initial KV messages only for fresh user-message turns.
             // resume_action carries no new prompt and should not emit synthetic user_query.
@@ -7234,7 +8382,7 @@ ${raw}
           }
 
           // Handle run turn with the established conversationId.
-          yield* this.handleChatMessage(conversationId!, parsed)
+          yield* this.handleChatMessage(conversationId!, parsed, streamId)
 
           // After handleChatMessage, check if there are pending tool calls
           // If there are, continue the loop to wait for tool results
@@ -7269,6 +8417,14 @@ ${raw}
       const errorMessage =
         error instanceof Error ? error.message : String(error)
       throw new Error(`BiDi stream failed: ${errorMessage}`)
+    } finally {
+      if (conversationId && streamId) {
+        this.abortBackendRequestsForStream(
+          conversationId,
+          streamId,
+          "bidi stream closed"
+        )
+      }
     }
   }
 
@@ -7283,7 +8439,8 @@ ${raw}
    */
   private async *handleChatMessage(
     conversationId: string,
-    parsed: ParsedCursorRequest
+    parsed: ParsedCursorRequest,
+    streamId?: string
   ): AsyncGenerator<Buffer> {
     // Get or create session with the provided conversationId
     let session = this.sessionManager.getOrCreateSession(conversationId, parsed)
@@ -7339,7 +8496,8 @@ ${raw}
         )
       rawMessages = session.messages
       this.logger.debug(
-        `Using session history: ${rawMessages.length} message(s) from previous turns`
+        `Using session history for ${conversationId}: ` +
+          `messages=${rawMessages.length}, records=${session.messageRecords.length}, turns=${session.turns.length}, pending=${session.pendingToolCalls.size}`
       )
     } else {
       // First turn: use parsed conversation
@@ -7375,9 +8533,8 @@ ${raw}
       `chat pre-truncation: ${conversationId}`,
       { pendingToolUseIds }
     )
-    // Keep the persisted session history unprojected. The normalized/truncated
-    // backend view is computed per request so resumability is based on the
-    // fullest raw history we have, not on a transient send-path projection.
+    this.sessionManager.replaceMessages(conversationId, rawMessages)
+    session = this.sessionManager.getSession(conversationId) || session
 
     const useGoogleContextMessages = this.isCloudCodeBackend(route.backend)
     const contextMessages = useGoogleContextMessages
@@ -7424,26 +8581,24 @@ ${raw}
       parsed,
       session,
       contextTokens: contextMessages.length
-        ? this.truncator.countTokens(contextMessages as UnifiedMessage[])
+        ? this.tokenCounter.countMessages(contextMessages as UnifiedMessage[])
         : 0,
       systemPrompt,
       toolDefinitions: apiTools,
+      model: session.model,
     })
 
-    const shouldUseSummaryTruncation =
-      !this.hasStructuredToolContent(rawMessages)
     const messages = this.truncateMessagesForBackend(
-      conversationId,
+      session,
       route.backend,
-      rawMessages,
       {
         maxTokens: budget.maxTokens,
         systemPromptTokens: budget.systemPromptTokens,
       },
       {
-        preferSummary: shouldUseSummaryTruncation,
         contextLabel: `chat pre-send: ${conversationId}`,
         pendingToolUseIds,
+        strategy: "auto",
       }
     )
 
@@ -7465,40 +8620,46 @@ ${raw}
       }
     }
 
-    // Build Anthropic-style DTO
-    const dto: CreateMessageDto = {
-      model: backendModel,
-      messages: [...contextMessages, ...messages],
-      system: systemPrompt || undefined,
-      max_tokens: budget.maxOutputTokens,
-      stream: true,
-    }
+    const buildChatDtoForRoute = (streamRoute: ModelRouteResult) =>
+      this.buildStreamingDtoForRoute(streamRoute, {
+        model: session.model,
+        promptContext: parsed,
+        conversationId,
+        session,
+        toolDefinitions: apiTools,
+        pendingToolUseIds,
+        thinkingLevel: parsed.thinkingLevel,
+        buildMessages: (routeBudget) =>
+          this.truncateMessagesForBackend(
+            session,
+            streamRoute.backend,
+            {
+              maxTokens: routeBudget.maxTokens,
+              systemPromptTokens: routeBudget.systemPromptTokens,
+            },
+            {
+              contextLabel: `chat pre-send: ${conversationId}`,
+              pendingToolUseIds,
+              strategy: "auto",
+            }
+          ) as CreateMessageDto["messages"],
+      })
 
-    dto.tools = apiTools
-    dto._conversationId = conversationId
-    dto._contextTokenBudget = budget.maxTokens
-    if (pendingToolUseIds.length > 0) {
-      dto._pendingToolUseIds = pendingToolUseIds
-    }
-    this.logger.debug(`Added ${dto.tools.length} tool definition(s) to request`)
-
-    // Add thinking if needed
-    if (parsed.thinkingLevel > 0) {
-      const thinkingConfig = this.buildCursorThinkingConfig(
-        parsed.thinkingLevel,
-        backendModel
-      )
-      if (thinkingConfig) {
-        dto.thinking = thinkingConfig.thinking
-        if (thinkingConfig.output_config) {
-          dto.output_config = thinkingConfig.output_config
-        }
-      }
-    }
+    const dto = buildChatDtoForRoute(route)
+    this.logger.debug(`Added ${apiTools.length} tool definition(s) to request`)
 
     // Call backend API (routed based on model name)
     try {
-      const stream = this.getBackendStream(dto)
+      const stream = this.getBackendStream(dto, {
+        buildDtoForRoute: buildChatDtoForRoute,
+        streamAbortBinding:
+          streamId && conversationId
+            ? {
+                conversationId,
+                streamId,
+              }
+            : undefined,
+      })
 
       // Generate base modelCallId for this conversation turn
       const modelCallBaseId = crypto.randomUUID()
@@ -7506,6 +8667,7 @@ ${raw}
 
       // Track accumulated text for history
       let accumulatedText = ""
+      let finalUsage: ContextUsageSnapshot | undefined
 
       // Track current tool call being accumulated
       // 使用会话级 execId（单调递增跨多轮对话）
@@ -7525,6 +8687,16 @@ ${raw}
       yield this.grpcService.createHeartbeatResponse()
 
       for await (const item of this.streamWithHeartbeat(stream)) {
+        if (
+          this.shouldAbortSupersededStream(
+            conversationId,
+            streamId,
+            "initial backend stream"
+          )
+        ) {
+          return
+        }
+
         // 心跳：保持 Cursor 连接活跃
         if (item.type === "heartbeat") {
           yield this.grpcService.createHeartbeatResponse()
@@ -7667,6 +8839,8 @@ ${raw}
             )
             yield thinkingDelta
           }
+        } else if (event.type === "message_delta") {
+          finalUsage = this.extractUsageSnapshot(event) || finalUsage
         } else if (event.type === "content_block_stop") {
           // Handle thinking block end
           if (isInThinkingBlock) {
@@ -7690,6 +8864,7 @@ ${raw}
               yield* this.registerAndDispatchToolInvocation({
                 conversationId: session.conversationId,
                 session,
+                streamId,
                 toolCall: currentToolCall,
                 accumulatedText,
                 checkpointModel: parsed.model,
@@ -7701,14 +8876,25 @@ ${raw}
             return
           }
         } else if (event.type === "message_stop") {
+          if (
+            this.shouldAbortSupersededStream(
+              conversationId,
+              streamId,
+              "initial backend message_stop"
+            )
+          ) {
+            return
+          }
+
           // No tool calls - message complete
           // Agent mode: text was already sent in real-time, just send turn_ended signal
           // CRITICAL: Agent mode requires turn_ended signal to complete
           this.logger.log("Agent mode: sending turn_ended signal")
 
           // CRITICAL: Add text-only message to history
+          let assistantRecordId: string | undefined
           if (accumulatedText) {
-            this.sessionManager.addMessage(
+            assistantRecordId = this.sessionManager.addMessage(
               session.conversationId,
               "assistant",
               accumulatedText
@@ -7717,32 +8903,39 @@ ${raw}
               `Added text message to history (${accumulatedText.length} chars)`
             )
           }
+          if (assistantRecordId && finalUsage) {
+            this.commitAssistantUsageLedger(
+              session,
+              assistantRecordId,
+              finalUsage,
+              accumulatedText
+            )
+          }
+
+          const completedSession = this.recordCompletedTurnIfNeeded(
+            session,
+            !!assistantRecordId,
+            `message_stop: ${conversationId}`
+          )
 
           // CRITICAL: Send conversationCheckpointUpdate before turn_ended
           // This is required for multi-turn conversations to work properly
 
-          // Generate and add new turn ID
-          const turnId = this.generateTurnId(
-            session.conversationId,
-            session.turns.length
-          )
-          this.sessionManager.addTurn(session.conversationId, turnId)
-
           const checkpoint =
             this.grpcService.createConversationCheckpointResponse(
-              session.conversationId,
-              session.model,
+              completedSession.conversationId,
+              completedSession.model,
               {
-                messageBlobIds: session.messageBlobIds,
-                usedTokens: session.usedTokens || 0,
-                maxTokens: this.resolveCheckpointMaxTokens(session),
-                workspaceUri: session.projectContext?.rootPath
-                  ? `file://${session.projectContext.rootPath}`
+                messageBlobIds: completedSession.messageBlobIds,
+                usedTokens: completedSession.usedTokens || 0,
+                maxTokens: this.resolveCheckpointMaxTokens(completedSession),
+                workspaceUri: completedSession.projectContext?.rootPath
+                  ? `file://${completedSession.projectContext.rootPath}`
                   : undefined,
-                readPaths: Array.from(session.readPaths),
-                fileStates: Object.fromEntries(session.fileStates),
-                turns: session.turns,
-                todos: session.todos,
+                readPaths: Array.from(completedSession.readPaths),
+                fileStates: Object.fromEntries(completedSession.fileStates),
+                turns: completedSession.turns,
+                todos: completedSession.todos,
               }
             )
           yield checkpoint
@@ -7764,6 +8957,23 @@ ${raw}
         }
       }
     } catch (error) {
+      if (error instanceof UpstreamRequestAbortedError) {
+        this.logger.log(
+          `Initial backend stream aborted for ${conversationId}: ${error.message}`
+        )
+        return
+      }
+
+      if (
+        this.shouldAbortSupersededStream(
+          conversationId,
+          streamId,
+          "initial backend error"
+        )
+      ) {
+        return
+      }
+
       const backendLabel = route.backend
       const errorMessage =
         error instanceof Error ? error.message : String(error)
@@ -7977,6 +9187,18 @@ ${raw}
     let shellResultState: ToolResultStatus | undefined
     let shellResultMessage: string | undefined
     let syntheticExitCode: number | undefined
+    const activePendingToolCall = session.pendingToolCalls.get(toolCallId)
+
+    if (
+      activePendingToolCall &&
+      this.shouldAbortSupersededStream(
+        conversationId,
+        activePendingToolCall.streamId,
+        `shell stream ${toolCallId}`
+      )
+    ) {
+      return
+    }
 
     // Initialize shell stream tracking if not already done
     if (!this.sessionManager.getShellOutput(conversationId, toolCallId)) {
@@ -7987,13 +9209,6 @@ ${raw}
     if (eventCase === "start") {
       this.logger.debug(`Shell stream start for ${toolCallId}`)
       this.sessionManager.markShellStarted(conversationId, toolCallId)
-      const startEvent = shellStream.event.value as
-        | { sandboxPolicy?: { type?: unknown } }
-        | undefined
-      const startResponse = this.grpcService.createShellOutputStartResponse(
-        startEvent?.sandboxPolicy
-      )
-      yield startResponse
       return
     }
 
@@ -8008,11 +9223,12 @@ ${raw}
           `Shell stream stdout for ${toolCallId}: ${data.length} chars`
         )
         this.sessionManager.appendShellStdout(conversationId, toolCallId, data)
-
-        // Send real-time UI update
-        const stdoutResponse =
-          this.grpcService.createShellOutputStdoutResponse(data)
-        yield stdoutResponse
+        yield* this.emitShellToolDelta(
+          toolCallId,
+          activePendingToolCall,
+          "stdout",
+          data
+        )
       }
       return
     }
@@ -8028,11 +9244,12 @@ ${raw}
           `Shell stream stderr for ${toolCallId}: ${data.length} chars`
         )
         this.sessionManager.appendShellStderr(conversationId, toolCallId, data)
-
-        // Send real-time UI update
-        const stderrResponse =
-          this.grpcService.createShellOutputStderrResponse(data)
-        yield stderrResponse
+        yield* this.emitShellToolDelta(
+          toolCallId,
+          activePendingToolCall,
+          "stderr",
+          data
+        )
       }
       return
     }
@@ -8060,7 +9277,12 @@ ${raw}
         toolCallId,
         denialMessage
       )
-      yield this.grpcService.createShellOutputStderrResponse(denialMessage)
+      yield* this.emitShellToolDelta(
+        toolCallId,
+        activePendingToolCall,
+        "stderr",
+        denialMessage
+      )
 
       // Cursor may not send an explicit exit after rejection. Synthesize one so
       // pending shell tool calls can be completed deterministically.
@@ -8103,14 +9325,6 @@ ${raw}
         exitCode,
         signal || undefined
       )
-
-      // Send exit event to UI
-      const exitResponse = this.grpcService.createShellOutputExitResponse(
-        exitCode,
-        exitAborted,
-        exitCwd
-      )
-      yield exitResponse
 
       // Get accumulated output
       const shellOutput = this.sessionManager.getShellOutput(
@@ -8166,7 +9380,9 @@ ${raw}
         }
       )
 
-      // Add tool result to message history and continue AI
+      // Add tool result to message history before any supersession return.
+      // Once the pending tool call is consumed, resumed streams need the
+      // persisted tool_result to reconstruct state safely.
       this.appendToolResultWithIntegrity(
         session,
         toolCallId,
@@ -8174,6 +9390,16 @@ ${raw}
         pendingToolCall.toolInput,
         adaptedToolResultContent
       )
+
+      if (
+        this.shouldAbortSupersededStream(
+          conversationId,
+          pendingToolCall.streamId,
+          `shell tool continuation ${toolCallId}`
+        )
+      ) {
+        return
+      }
 
       // Continue AI generation
       const route = this.modelRouter.resolveModel(session.model)
@@ -8194,7 +9420,7 @@ ${raw}
         return
       }
 
-      const activeSession =
+      let activeSession =
         this.cleanSessionHistoryForTransientAssistantInfrastructureMessages(
           session,
           `shell continuation bootstrap: ${conversationId}`
@@ -8210,21 +9436,6 @@ ${raw}
       const apiTools = buildToolsForApi(toolsToUse, {
         mcpToolDefs: activeSession.mcpToolDefs,
       })
-      const useGoogleContextMessages = this.isCloudCodeBackend(route.backend)
-      const contextMessages = useGoogleContextMessages
-        ? this.buildGoogleContextMessages(activeSession, conversationId)
-        : []
-      const systemPrompt = useGoogleContextMessages
-        ? this.buildGoogleSystemPrompt(activeSession)
-        : this.buildSystemPrompt(activeSession)
-      const budget = this.resolveMessageBudget(route.backend, {
-        session: activeSession,
-        contextTokens: contextMessages.length
-          ? this.truncator.countTokens(contextMessages as UnifiedMessage[])
-          : 0,
-        systemPrompt,
-        toolDefinitions: apiTools,
-      })
 
       const normalizedShellHistory = this.normalizeHistoryForBackend(
         activeSession.messages as Array<{
@@ -8236,45 +9447,41 @@ ${raw}
           pendingToolUseIds: remainingPendingToolUseIds,
         }
       )
-
-      const truncatedShellMessages = this.truncateMessagesForBackend(
+      this.sessionManager.replaceMessages(
         conversationId,
-        route.backend,
-        normalizedShellHistory,
-        {
-          maxTokens: budget.maxTokens,
-          systemPromptTokens: budget.systemPromptTokens,
-        },
-        {
-          preferSummary: !this.hasStructuredToolContent(normalizedShellHistory),
-          contextLabel: `shell continuation: ${conversationId}`,
-          pendingToolUseIds: remainingPendingToolUseIds,
-        }
+        normalizedShellHistory
       )
+      activeSession =
+        this.sessionManager.getSession(conversationId) || activeSession
 
-      const dto: CreateMessageDto = {
-        model: backendModel,
-        messages: [...contextMessages, ...truncatedShellMessages],
-        system: systemPrompt || undefined,
-        max_tokens: budget.maxOutputTokens,
-        stream: true,
-        tools: apiTools,
-      }
-      dto._pendingToolUseIds = remainingPendingToolUseIds
+      const buildShellContinuationDtoForRoute = (
+        streamRoute: ModelRouteResult
+      ) =>
+        this.buildStreamingDtoForRoute(streamRoute, {
+          model: activeSession.model,
+          promptContext: activeSession,
+          conversationId,
+          session: activeSession,
+          toolDefinitions: apiTools,
+          pendingToolUseIds: remainingPendingToolUseIds,
+          thinkingLevel: activeSession.thinkingLevel,
+          buildMessages: (routeBudget) =>
+            this.truncateMessagesForBackend(
+              activeSession,
+              streamRoute.backend,
+              {
+                maxTokens: routeBudget.maxTokens,
+                systemPromptTokens: routeBudget.systemPromptTokens,
+              },
+              {
+                contextLabel: `shell continuation: ${conversationId}`,
+                pendingToolUseIds: remainingPendingToolUseIds,
+                strategy: "reactive",
+              }
+            ) as CreateMessageDto["messages"],
+        })
 
-      // 续流中保持 thinking 配置（与主流一致）
-      if (activeSession.thinkingLevel > 0) {
-        const thinkingConfig = this.buildCursorThinkingConfig(
-          activeSession.thinkingLevel,
-          backendModel
-        )
-        if (thinkingConfig) {
-          dto.thinking = thinkingConfig.thinking
-          if (thinkingConfig.output_config) {
-            dto.output_config = thinkingConfig.output_config
-          }
-        }
-      }
+      const dto = buildShellContinuationDtoForRoute(route)
 
       let accumulatedText = ""
       const continuationModelCallBaseId = crypto.randomUUID()
@@ -8288,9 +9495,28 @@ ${raw}
       let currentToolCall: ActiveToolCall | null = null
 
       try {
-        const stream = this.getBackendStream(dto)
+        const stream = this.getBackendStream(dto, {
+          buildDtoForRoute: buildShellContinuationDtoForRoute,
+          streamAbortBinding: pendingToolCall.streamId
+            ? {
+                conversationId,
+                streamId: pendingToolCall.streamId,
+              }
+            : undefined,
+        })
+        let finalUsage: ContextUsageSnapshot | undefined
 
         for await (const sseEvent of stream) {
+          if (
+            this.shouldAbortSupersededStream(
+              conversationId,
+              pendingToolCall.streamId,
+              "shell continuation stream"
+            )
+          ) {
+            return
+          }
+
           const event = this.parseSseEvent(sseEvent)
           if (!event) continue
 
@@ -8332,6 +9558,8 @@ ${raw}
               // Send thinking delta
               yield this.grpcService.createThinkingDeltaResponse(delta.thinking)
             }
+          } else if (event.type === "message_delta") {
+            finalUsage = this.extractUsageSnapshot(event) || finalUsage
           } else if (event.type === "content_block_stop") {
             // Handle thinking block end
             if (isInThinkingBlock) {
@@ -8346,6 +9574,7 @@ ${raw}
                 yield* this.registerAndDispatchToolInvocation({
                   conversationId,
                   session,
+                  streamId: pendingToolCall.streamId,
                   toolCall: currentToolCall,
                   accumulatedText,
                   checkpointModel: session.model,
@@ -8359,11 +9588,30 @@ ${raw}
               return
             }
           } else if (event.type === "message_stop") {
+            if (
+              this.shouldAbortSupersededStream(
+                conversationId,
+                pendingToolCall.streamId,
+                "shell continuation message_stop"
+              )
+            ) {
+              return
+            }
+
             // AI finished without more tool calls
+            let assistantRecordId: string | undefined
             if (accumulatedText) {
-              this.sessionManager.addMessage(
+              assistantRecordId = this.sessionManager.addMessage(
                 session.conversationId,
                 "assistant",
+                accumulatedText
+              )
+            }
+            if (assistantRecordId && finalUsage) {
+              this.commitAssistantUsageLedger(
+                session,
+                assistantRecordId,
+                finalUsage,
                 accumulatedText
               )
             }
@@ -8397,6 +9645,23 @@ ${raw}
           }
         }
       } catch (error) {
+        if (error instanceof UpstreamRequestAbortedError) {
+          this.logger.log(
+            `Shell continuation aborted for ${conversationId}: ${error.message}`
+          )
+          return
+        }
+
+        if (
+          this.shouldAbortSupersededStream(
+            conversationId,
+            pendingToolCall.streamId,
+            "shell continuation error"
+          )
+        ) {
+          return
+        }
+
         yield* this.emitPostToolContinuationError(
           conversationId,
           backendLabel,
@@ -8433,6 +9698,16 @@ ${raw}
     }
 
     const toolResult = parsed.toolResults[0]!
+
+    if (
+      this.shouldAbortSupersededStream(
+        conversationId,
+        options.streamId,
+        `tool result ${toolResult.toolCallId || "(pending)"}`
+      )
+    ) {
+      return
+    }
 
     const execNumericId = this.normalizePositiveInteger(toolResult.toolType)
     let toolCallId = toolResult.toolCallId
@@ -8619,6 +9894,7 @@ ${raw}
       rawToolResultContent
     )
     const toolResultState = this.deriveToolResultState(toolResult)
+    const parsedShellResult = this.extractShellResultPayload(toolResult)
     if (pendingToolCall.editApplyWarning) {
       toolResultContent =
         `${toolResultContent}\n\n` +
@@ -8631,41 +9907,51 @@ ${raw}
     const heartbeat = this.grpcService.createHeartbeatResponse()
     yield heartbeat
 
-    // For run_terminal_command, stream the output using ShellOutputDeltaUpdate
-    // NOTE: DO NOT send duplicate stdout - only send ShellOutput messages OR ToolCallDelta, not both
+    // For run_terminal_command, stream incremental output through ToolCallDelta.
+    // Started/completed updates already cover lifecycle boundaries.
     if (
       pendingToolCall.toolName === "run_terminal_command" ||
       pendingToolCall.toolName === "CLIENT_SIDE_TOOL_V2_RUN_TERMINAL_COMMAND_V2"
     ) {
-      // Send shell output start
-      this.logger.debug(
-        `Agent mode: sending ShellOutputStartResponse for ${pendingToolCall.toolName}`
-      )
-      const startResponse = this.grpcService.createShellOutputStartResponse()
-      yield startResponse
-
-      // Stream the output content (stdout) - only via ShellOutput, NOT ToolCallDelta
-      if (toolResultContent.length > 0) {
+      if (parsedShellResult?.stdout) {
         this.logger.debug(
-          `Agent mode: sending ShellOutputStdoutResponse (${toolResultContent.length} chars)`
+          `Agent mode: sending shell stdout delta (${parsedShellResult.stdout.length} chars)`
         )
-        const stdoutResponse =
-          this.grpcService.createShellOutputStdoutResponse(toolResultContent)
-        yield stdoutResponse
-
-        // REMOVED: ToolCallDelta duplicate - stdout is already sent via ShellOutputStdoutResponse
-        // The previous code was sending the same content twice, causing repeated UI display
+        yield* this.emitShellToolDelta(
+          toolCallId,
+          pendingToolCall,
+          "stdout",
+          parsedShellResult.stdout
+        )
       }
 
-      // Send exit signal (success = code 0)
-      this.logger.debug(
-        `Agent mode: sending ShellOutputExitResponse for ${pendingToolCall.toolName}`
-      )
-      const exitResponse = this.grpcService.createShellOutputExitResponse(
-        0,
-        false
-      )
-      yield exitResponse
+      if (parsedShellResult?.stderr) {
+        this.logger.debug(
+          `Agent mode: sending shell stderr delta (${parsedShellResult.stderr.length} chars)`
+        )
+        yield* this.emitShellToolDelta(
+          toolCallId,
+          pendingToolCall,
+          "stderr",
+          parsedShellResult.stderr
+        )
+      }
+
+      if (
+        !parsedShellResult?.stdout &&
+        !parsedShellResult?.stderr &&
+        toolResultContent.length > 0
+      ) {
+        this.logger.debug(
+          `Agent mode: sending fallback shell stdout delta (${toolResultContent.length} chars)`
+        )
+        yield* this.emitShellToolDelta(
+          toolCallId,
+          pendingToolCall,
+          "stdout",
+          toolResultContent
+        )
+      }
     } else if (this.isEditToolInvocation(pendingToolCall.toolName)) {
       // For edit tools, avoid replaying the full replacement text as a live delta.
       // Cursor can render this as a brand-new unnamed buffer / full-file rewrite.
@@ -8787,45 +10073,15 @@ ${raw}
       pendingToolCall.toolName === "run_command"
     ) {
       // Extract ShellResult details for correct UI display
-      try {
-        if (
-          toolResult &&
-          toolResult.resultData &&
-          toolResult.resultData.length > 0
-        ) {
-          // 使用生成的 protobuf 类型解析 ShellResult
-          const execMsg = fromBinary(
-            ExecClientMessageSchema,
-            toolResult.resultData
-          )
-          let stdout = ""
-          let stderr = ""
-          let shellExitCode = 0
-
-          if (execMsg.message.case === "shellResult") {
-            const sr = execMsg.message.value
-            if (sr.result.case === "success") {
-              stdout = sr.result.value.stdout || ""
-              stderr = sr.result.value.stderr || ""
-              shellExitCode = sr.result.value.exitCode ?? 0
-            } else if (sr.result.case === "failure") {
-              stdout = sr.result.value.stdout || ""
-              stderr = sr.result.value.stderr || ""
-              shellExitCode = sr.result.value.exitCode ?? 1
-            }
-          }
-
-          extraData = {
-            ...(extraData || {}),
-            shellResult: {
-              stdout: stdout || toolResultContent, // Fallback to content string
-              stderr: stderr,
-              exitCode: shellExitCode,
-            },
-          }
+      if (parsedShellResult) {
+        extraData = {
+          ...(extraData || {}),
+          shellResult: {
+            stdout: parsedShellResult.stdout || toolResultContent,
+            stderr: parsedShellResult.stderr,
+            exitCode: parsedShellResult.exitCode,
+          },
         }
-      } catch (e) {
-        this.logger.error(`Failed to parse shell result: ${String(e)}`)
       }
     }
 
@@ -9114,6 +10370,10 @@ ${raw}
       toolResultContent,
       toolResultState
     )
+    // Persist tool_result before any supersession return. At this point the
+    // pending tool call has already been consumed, so dropping the history
+    // write would strand resumed streams without either pending state or a
+    // persisted tool_result to continue from.
     this.appendToolResultWithIntegrity(
       session,
       toolCallId,
@@ -9126,6 +10386,16 @@ ${raw}
       this.logger.log(
         `Tool result finalized without AI continuation: ${toolCallId}`
       )
+      return
+    }
+
+    if (
+      this.shouldAbortSupersededStream(
+        conversationId,
+        options.streamId,
+        `tool continuation dispatch ${toolCallId}`
+      )
+    ) {
       return
     }
 
@@ -9154,7 +10424,7 @@ ${raw}
         return
       }
 
-      const activeSession =
+      let activeSession =
         this.cleanSessionHistoryForTransientAssistantInfrastructureMessages(
           session,
           `tool continuation bootstrap: ${conversationId}`
@@ -9170,21 +10440,6 @@ ${raw}
       const continuationTools = buildToolsForApi(toolsForContinuation, {
         mcpToolDefs: activeSession.mcpToolDefs,
       })
-      const useGoogleContextMessages = this.isCloudCodeBackend(route.backend)
-      const contextMessages = useGoogleContextMessages
-        ? this.buildGoogleContextMessages(activeSession, conversationId)
-        : []
-      const systemPrompt = useGoogleContextMessages
-        ? this.buildGoogleSystemPrompt(activeSession)
-        : this.buildSystemPrompt(activeSession)
-      const budget = this.resolveMessageBudget(route.backend, {
-        session: activeSession,
-        contextTokens: contextMessages.length
-          ? this.truncator.countTokens(contextMessages as UnifiedMessage[])
-          : 0,
-        systemPrompt,
-        toolDefinitions: continuationTools,
-      })
 
       const normalizedContinuationHistory = this.normalizeHistoryForBackend(
         activeSession.messages as Array<{
@@ -9196,50 +10451,50 @@ ${raw}
           pendingToolUseIds: remainingPendingToolUseIds,
         }
       )
-
-      const truncatedContinuationMessages = this.truncateMessagesForBackend(
+      this.sessionManager.replaceMessages(
         conversationId,
-        route.backend,
-        normalizedContinuationHistory,
-        {
-          maxTokens: budget.maxTokens,
-          systemPromptTokens: budget.systemPromptTokens,
-        },
-        {
-          preferSummary: !this.hasStructuredToolContent(
-            normalizedContinuationHistory
-          ),
-          contextLabel: `tool continuation: ${conversationId}`,
-          pendingToolUseIds: remainingPendingToolUseIds,
-        }
+        normalizedContinuationHistory
       )
+      activeSession =
+        this.sessionManager.getSession(conversationId) || activeSession
 
-      const dto: CreateMessageDto = {
-        model: backendModel,
-        messages: [...contextMessages, ...truncatedContinuationMessages],
-        system: systemPrompt || undefined,
-        max_tokens: budget.maxOutputTokens,
-        stream: true,
-        tools: continuationTools,
-      }
-      dto._pendingToolUseIds = remainingPendingToolUseIds
+      const buildContinuationDtoForRoute = (streamRoute: ModelRouteResult) =>
+        this.buildStreamingDtoForRoute(streamRoute, {
+          model: activeSession.model,
+          promptContext: activeSession,
+          conversationId,
+          session: activeSession,
+          toolDefinitions: continuationTools,
+          pendingToolUseIds: remainingPendingToolUseIds,
+          thinkingLevel: activeSession.thinkingLevel,
+          buildMessages: (routeBudget) =>
+            this.truncateMessagesForBackend(
+              activeSession,
+              streamRoute.backend,
+              {
+                maxTokens: routeBudget.maxTokens,
+                systemPromptTokens: routeBudget.systemPromptTokens,
+              },
+              {
+                contextLabel: `tool continuation: ${conversationId}`,
+                pendingToolUseIds: remainingPendingToolUseIds,
+                strategy: "reactive",
+              }
+            ) as CreateMessageDto["messages"],
+        })
 
-      // 续流中保持 thinking 配置（与主流一致）
-      if (activeSession.thinkingLevel > 0) {
-        const thinkingConfig = this.buildCursorThinkingConfig(
-          activeSession.thinkingLevel,
-          backendModel
-        )
-        if (thinkingConfig) {
-          dto.thinking = thinkingConfig.thinking
-          if (thinkingConfig.output_config) {
-            dto.output_config = thinkingConfig.output_config
-          }
-        }
-      }
+      const dto = buildContinuationDtoForRoute(route)
 
       // Stream the continuation - may include more tool calls (routed based on model)
-      const stream = this.getBackendStream(dto)
+      const stream = this.getBackendStream(dto, {
+        buildDtoForRoute: buildContinuationDtoForRoute,
+        streamAbortBinding: options.streamId
+          ? {
+              conversationId,
+              streamId: options.streamId,
+            }
+          : undefined,
+      })
 
       // Generate base modelCallId for continuation tool calls
       const continuationModelCallBaseId = crypto.randomUUID()
@@ -9247,6 +10502,7 @@ ${raw}
 
       // Track accumulated text for history
       let accumulatedText = ""
+      let finalUsage: ContextUsageSnapshot | undefined
 
       // Track thinking block state
       let isInThinkingBlock = false
@@ -9266,6 +10522,16 @@ ${raw}
       yield this.grpcService.createHeartbeatResponse()
 
       for await (const item of this.streamWithHeartbeat(stream)) {
+        if (
+          this.shouldAbortSupersededStream(
+            conversationId,
+            options.streamId,
+            "tool continuation stream"
+          )
+        ) {
+          return
+        }
+
         // 心跳：保持 Cursor 连接活跃
         if (item.type === "heartbeat") {
           yield this.grpcService.createHeartbeatResponse()
@@ -9398,6 +10664,8 @@ ${raw}
             // Send thinking delta
             yield this.grpcService.createThinkingDeltaResponse(delta.thinking)
           }
+        } else if (event.type === "message_delta") {
+          finalUsage = this.extractUsageSnapshot(event) || finalUsage
         } else if (event.type === "content_block_stop") {
           // Handle thinking block end
           if (isInThinkingBlock) {
@@ -9415,6 +10683,7 @@ ${raw}
               yield* this.registerAndDispatchToolInvocation({
                 conversationId,
                 session,
+                streamId: options.streamId,
                 toolCall: currentToolCall,
                 accumulatedText,
                 checkpointModel: session.model,
@@ -9426,6 +10695,16 @@ ${raw}
             return
           }
         } else if (event.type === "message_stop") {
+          if (
+            this.shouldAbortSupersededStream(
+              conversationId,
+              options.streamId,
+              "tool continuation message_stop"
+            )
+          ) {
+            return
+          }
+
           // No tool calls - conversation complete
           // Agent mode: send turn_ended signal (text was already sent in real-time)
           this.logger.log(
@@ -9435,7 +10714,8 @@ ${raw}
           yield* this.finalizeAssistantContinuationTurn(
             session,
             conversationId,
-            accumulatedText || undefined
+            accumulatedText || undefined,
+            finalUsage
           )
           this.logger.log("Sent conversationCheckpointUpdate (continuation)")
           return
@@ -9463,9 +10743,18 @@ ${raw}
 
         // Retry: rebuild and resend the same continuation request
         try {
-          const retryStream = this.getBackendStream(dto)
+          const retryStream = this.getBackendStream(dto, {
+            buildDtoForRoute: buildContinuationDtoForRoute,
+            streamAbortBinding: options.streamId
+              ? {
+                  conversationId,
+                  streamId: options.streamId,
+                }
+              : undefined,
+          })
           let retryAccumulatedText = ""
           let retryHasToolCall = false
+          let retryUsage: ContextUsageSnapshot | undefined
           const retryModelCallBaseId = crypto.randomUUID()
           let retryToolCallIndex = 0
           let retryCurrentToolCall: ActiveToolCall | null = null
@@ -9473,6 +10762,16 @@ ${raw}
           let retryThinkingStartTime = 0
 
           for await (const retryItem of this.streamWithHeartbeat(retryStream)) {
+            if (
+              this.shouldAbortSupersededStream(
+                conversationId,
+                options.streamId,
+                "tool continuation retry stream"
+              )
+            ) {
+              return
+            }
+
             if (retryItem.type === "heartbeat") {
               yield this.grpcService.createHeartbeatResponse()
               continue
@@ -9531,6 +10830,8 @@ ${raw}
                   delta.thinking
                 )
               }
+            } else if (retryEvent.type === "message_delta") {
+              retryUsage = this.extractUsageSnapshot(retryEvent) || retryUsage
             } else if (retryEvent.type === "content_block_stop") {
               if (retryIsInThinkingBlock) {
                 const thinkingDurationMs = Date.now() - retryThinkingStartTime
@@ -9547,6 +10848,7 @@ ${raw}
                   yield* this.registerAndDispatchToolInvocation({
                     conversationId,
                     session,
+                    streamId: options.streamId,
                     toolCall: retryCurrentToolCall,
                     accumulatedText: retryAccumulatedText,
                     checkpointModel: session.model,
@@ -9560,13 +10862,24 @@ ${raw}
                 return
               }
             } else if (retryEvent.type === "message_stop") {
+              if (
+                this.shouldAbortSupersededStream(
+                  conversationId,
+                  options.streamId,
+                  "tool continuation retry message_stop"
+                )
+              ) {
+                return
+              }
+
               this.logger.log(
                 "[Retry] message_stop received, ending continuation"
               )
               yield* this.finalizeAssistantContinuationTurn(
                 session,
                 conversationId,
-                retryAccumulatedText || undefined
+                retryAccumulatedText || undefined,
+                retryUsage
               )
               return
             }
@@ -9587,17 +10900,33 @@ ${raw}
             yield* this.finalizeAssistantContinuationTurn(
               session,
               conversationId,
-              retryAccumulatedText || undefined
+              retryAccumulatedText || undefined,
+              retryUsage
             )
             return
           }
         } catch (retryError) {
+          if (retryError instanceof UpstreamRequestAbortedError) {
+            this.logger.log(
+              `Tool continuation retry aborted for ${conversationId}: ${retryError.message}`
+            )
+            return
+          }
           this.logger.warn(`[Empty Stream] Retry failed: ${String(retryError)}`)
         }
 
         // Both attempts returned empty — emit fallback text to maintain
         // protocol integrity. Without this, Cursor receives no assistant
         // output and opens a new chat window.
+        if (
+          this.shouldAbortSupersededStream(
+            conversationId,
+            options.streamId,
+            "tool continuation empty-stream fallback"
+          )
+        ) {
+          return
+        }
         this.logger.warn(
           `[Empty Stream] Both attempts returned empty for ${conversationId}; emitting fallback text response`
         )
@@ -9608,6 +10937,23 @@ ${raw}
         return
       }
     } catch (error) {
+      if (error instanceof UpstreamRequestAbortedError) {
+        this.logger.log(
+          `Tool continuation aborted for ${conversationId}: ${error.message}`
+        )
+        return
+      }
+
+      if (
+        this.shouldAbortSupersededStream(
+          conversationId,
+          options.streamId,
+          "tool continuation error"
+        )
+      ) {
+        return
+      }
+
       const repaired = this.repairMissingToolOutputProtocolState(
         conversationId,
         `tool continuation: ${conversationId}`,
@@ -10587,7 +11933,9 @@ ${raw}
       parts.push(context.customSystemPrompt)
     }
 
-    const cursorRulesSection = this.buildCursorRulesSection(context.cursorRules)
+    const cursorRulesSection = this.buildCursorRulesSection(
+      this.resolveEffectiveRuleContents(context.cursorRules)
+    )
     if (cursorRulesSection) {
       parts.push(cursorRulesSection)
     }
@@ -10697,47 +12045,18 @@ ${raw}
       })
     }
 
-    if (context.cursorRules && context.cursorRules.length > 0) {
-      const ruleContents = context.cursorRules
-        .map((rule) => (typeof rule === "string" ? rule : rule.content))
-        .filter((content) => typeof content === "string" && content.trim())
-
-      // 注入 KnowledgeBase 中的全局用户规则（Cursor UI 创建的 "Always Apply" 规则）
-      // Cursor Agent 协议不会在 requestContext.rules 中发送这些规则，
-      // 但用户通过 KnowledgeBaseAdd 接口创建后已持久化在本地数据库中。
-      const kbItems = this.knowledgeBaseService.list()
-      for (const item of kbItems) {
-        const content = item.knowledge?.trim()
-        if (content) {
-          ruleContents.push(content)
-        }
-      }
-
-      if (ruleContents.length > 0) {
-        contextMessages.push({
-          role: "user",
-          content:
-            "<user_rules>\n" + ruleContents.join("\n") + "\n</user_rules>",
-        })
-      }
+    const ruleContents = this.resolveEffectiveRuleContents(context.cursorRules)
+    if (ruleContents.length > 0) {
+      contextMessages.push({
+        role: "user",
+        content: "<user_rules>\n" + ruleContents.join("\n") + "\n</user_rules>",
+      })
     } else {
-      // 即使没有 cursorRules，也要检查 KnowledgeBase 中的全局规则
-      const kbItems = this.knowledgeBaseService.list()
-      const kbContents = kbItems
-        .map((item) => item.knowledge?.trim())
-        .filter(Boolean)
-      if (kbContents.length > 0) {
-        contextMessages.push({
-          role: "user",
-          content: "<user_rules>\n" + kbContents.join("\n") + "\n</user_rules>",
-        })
-      } else {
-        contextMessages.push({
-          role: "user",
-          content:
-            "<user_rules>\nThe user has not defined any custom rules.\n</user_rules>",
-        })
-      }
+      contextMessages.push({
+        role: "user",
+        content:
+          "<user_rules>\nThe user has not defined any custom rules.\n</user_rules>",
+      })
     }
 
     {
@@ -10832,6 +12151,34 @@ ${raw}
     }
 
     return contextMessages
+  }
+
+  private resolveEffectiveRuleContents(
+    rules?: PromptContext["cursorRules"] | string[]
+  ): string[] {
+    const ruleContents = Array.isArray(rules)
+      ? rules
+          .map((rule) =>
+            typeof rule === "string" ? rule : (rule.content ?? "")
+          )
+          .map((content) => content.trim())
+          .filter((content) => content.length > 0)
+      : []
+    const kbContents = this.knowledgeBaseService
+      .list()
+      .map((item) => item.knowledge?.trim() ?? "")
+      .filter((content) => content.length > 0)
+
+    const seen = new Set<string>()
+    const merged: string[] = []
+    for (const content of [...ruleContents, ...kbContents]) {
+      if (seen.has(content)) {
+        continue
+      }
+      seen.add(content)
+      merged.push(content)
+    }
+    return merged
   }
 
   private buildCursorRulesSection(

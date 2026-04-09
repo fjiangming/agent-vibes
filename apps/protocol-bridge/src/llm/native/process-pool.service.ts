@@ -18,6 +18,7 @@ import {
   BackendPoolEntryState,
   BackendPoolStatus,
 } from "../shared/backend-pool-status"
+import { UpstreamRequestAbortedError } from "../shared/abort-signal"
 
 /**
  * Account configuration for a native worker process
@@ -53,6 +54,7 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>
   timeoutMs?: number
   timeoutMessage?: string
+  abortCleanup?: () => void
 }
 
 /**
@@ -730,6 +732,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
     }
     for (const [, pending] of handle.pending) {
       clearTimeout(pending.timeout)
+      pending.abortCleanup?.()
       pending.reject(new Error("Worker killed"))
     }
     handle.pending.clear()
@@ -786,6 +789,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
         if (msg.stream === null) {
           // Stream end
           clearTimeout(pending.timeout)
+          pending.abortCleanup?.()
           handle.pending.delete(id)
           pending.resolve(undefined)
           if (handle.draining && handle.pending.size === 0) {
@@ -808,6 +812,7 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
 
       // Regular response
       clearTimeout(pending.timeout)
+      pending.abortCleanup?.()
       handle.pending.delete(id)
 
       if (msg.error) {
@@ -962,15 +967,58 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
     method: string,
     params: Record<string, unknown>,
     onChunk: (chunk: unknown) => void,
-    timeoutMs: number = 300000
+    timeoutMs: number = 300000,
+    abortSignal?: AbortSignal
   ): Promise<void> {
     const id = `req-${++this.requestCounter}`
 
     return new Promise((resolve, reject) => {
+      if (abortSignal?.aborted) {
+        reject(
+          new UpstreamRequestAbortedError(this.describeAbortReason(abortSignal))
+        )
+        return
+      }
+
       const timeout = setTimeout(() => {
+        cleanupAbort()
         handle.pending.delete(id)
+        this.cancelWorkerRequest(handle, id, `Worker stream timeout: ${method}`)
         reject(new Error(`Worker stream timeout: ${method}`))
       }, timeoutMs)
+      let cleanupAbort: () => void = () => undefined
+
+      if (abortSignal) {
+        const onAbort = () => {
+          handle.pending.delete(id)
+          clearTimeout(timeout)
+          this.cancelWorkerRequest(
+            handle,
+            id,
+            this.describeAbortReason(abortSignal)
+          )
+          reject(
+            new UpstreamRequestAbortedError(
+              this.describeAbortReason(abortSignal)
+            )
+          )
+        }
+
+        if (abortSignal.aborted) {
+          clearTimeout(timeout)
+          reject(
+            new UpstreamRequestAbortedError(
+              this.describeAbortReason(abortSignal)
+            )
+          )
+          return
+        }
+
+        abortSignal.addEventListener("abort", onAbort, { once: true })
+        cleanupAbort = () => {
+          abortSignal.removeEventListener("abort", onAbort)
+        }
+      }
 
       handle.pending.set(id, {
         resolve: () => resolve(),
@@ -979,11 +1027,43 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
         timeout,
         timeoutMs,
         timeoutMessage: `Worker stream timeout: ${method}`,
+        abortCleanup: cleanupAbort,
       })
 
       const request: WorkerRequest = { id, method, params }
       handle.process.stdin!.write(JSON.stringify(request) + "\n")
     })
+  }
+
+  private describeAbortReason(abortSignal: AbortSignal): string {
+    const reason: unknown = abortSignal.reason
+    if (typeof reason === "string" && reason.trim()) {
+      return reason.trim()
+    }
+    if (reason instanceof Error && reason.message.trim()) {
+      return reason.message.trim()
+    }
+    return "Worker stream aborted"
+  }
+
+  private cancelWorkerRequest(
+    handle: WorkerHandle,
+    requestId: string,
+    reason: string
+  ): void {
+    try {
+      const controlRequest: WorkerRequest = {
+        id: `req-${++this.requestCounter}`,
+        method: "cancelRequest",
+        params: {
+          requestId,
+          reason,
+        },
+      }
+      handle.process.stdin!.write(JSON.stringify(controlRequest) + "\n")
+    } catch {
+      // Worker may already be unavailable.
+    }
   }
 
   // =========================================================================
@@ -1425,7 +1505,8 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
   async generateStream(
     payload: Record<string, unknown>,
     onChunk: (chunk: unknown) => void,
-    model?: string
+    model?: string,
+    abortSignal?: AbortSignal
   ): Promise<void> {
     const requestStartedAt = Date.now()
     const worker = this.getNextWorker(model)
@@ -1445,7 +1526,9 @@ export class ProcessPoolService implements OnModuleInit, OnModuleDestroy {
           lastUsageMetadata = usageMetadata
         }
         onChunk(chunk)
-      }
+      },
+      300000,
+      abortSignal
     )
 
     this.recordGoogleUsage(

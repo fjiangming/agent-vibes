@@ -10,9 +10,7 @@ import type { AnthropicResponse } from "../../shared/anthropic"
 import { UsageStatsService } from "../../usage/usage-stats.service"
 import { applyPromptCachingOptimizations } from "./prompt-caching"
 import { cleanJsonSchema, deepCleanUndefined } from "./schema-cleaner"
-import {
-  getAccountConfigPathCandidates,
-} from "../../shared/protocol-bridge-paths"
+import { getAccountConfigPathCandidates } from "../../shared/protocol-bridge-paths"
 import { PersistenceService } from "../../persistence"
 import {
   type CursorDisplayModel,
@@ -40,9 +38,73 @@ import {
   BackendPoolEntryState,
   BackendPoolStatus,
 } from "../shared/backend-pool-status"
+import {
+  createAbortPromise,
+  createAbortSignalWithTimeout,
+  toUpstreamRequestAbortedError,
+} from "../shared/abort-signal"
 
 export interface AnthropicForwardHeaders {
   [key: string]: string | undefined
+}
+
+function stringifyUnknownForLog(value: unknown): string {
+  if (value == null) {
+    return ""
+  }
+  if (typeof value === "string") {
+    return value
+  }
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return `${value}`
+  }
+  if (typeof value === "symbol") {
+    return value.description || value.toString()
+  }
+
+  try {
+    const serialized = JSON.stringify(value)
+    if (typeof serialized === "string") {
+      return serialized
+    }
+  } catch {
+    // ignore JSON serialization failures for logging
+  }
+
+  return Object.prototype.toString.call(value)
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    const details: string[] = [error.message]
+    const cause = (error as Error & { cause?: unknown }).cause
+    if (cause) {
+      if (cause instanceof Error) {
+        details.push(`cause=${cause.message}`)
+        const nestedCode = (cause as Error & { code?: unknown }).code
+        if (nestedCode != null) {
+          details.push(`causeCode=${stringifyUnknownForLog(nestedCode)}`)
+        }
+      } else {
+        details.push(`cause=${stringifyUnknownForLog(cause)}`)
+      }
+    }
+    const code = (error as Error & { code?: unknown }).code
+    if (code != null) {
+      details.push(`code=${stringifyUnknownForLog(code)}`)
+    }
+    const errno = (error as Error & { errno?: unknown }).errno
+    if (errno != null) {
+      details.push(`errno=${stringifyUnknownForLog(errno)}`)
+    }
+    return details.join(", ")
+  }
+
+  return stringifyUnknownForLog(error)
 }
 
 interface ClaudeApiModelMapping {
@@ -69,6 +131,7 @@ interface ClaudeApiAccount extends CooldownableAccount {
   apiKey: string
   baseUrl: string
   proxyUrl?: string
+  maxContextTokens?: number
   stripThinking: boolean
   sanitizeForProxy: boolean
   prefix?: string
@@ -96,6 +159,7 @@ interface ClaudeApiAccountFileEntry {
   apiKey?: string
   baseUrl?: string
   proxyUrl?: string
+  maxContextTokens?: number
   stripThinking?: boolean
   sanitizeForProxy?: boolean
   prefix?: string
@@ -112,6 +176,7 @@ interface ClaudeApiConfigFile {
 
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 const DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
+export const DEFAULT_CLAUDE_API_CONTEXT_LIMIT_TOKENS = 200_000
 
 const DEFAULT_PUBLIC_CLAUDE_MODEL_IDS = [
   "claude-sonnet-4-6",
@@ -160,6 +225,16 @@ export class ClaudeApiService implements OnModuleInit {
   private accountsConfigPath: string | null = null
   private accountStateStore: BackendAccountStateStore
 
+  private normalizeMaxContextTokens(value: unknown): number | undefined {
+    const parsed =
+      typeof value === "string" ? Number.parseInt(value.trim(), 10) : value
+    if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed <= 0) {
+      return undefined
+    }
+
+    return Math.floor(parsed)
+  }
+
   constructor(
     private readonly configService: ConfigService,
     private readonly persistence: PersistenceService,
@@ -186,6 +261,9 @@ export class ClaudeApiService implements OnModuleInit {
     const envProxyUrl = this.configService
       .get<string>("CLAUDE_PROXY_URL", "")
       .trim()
+    const envMaxContextTokens = this.normalizeMaxContextTokens(
+      this.configService.get<number>("CLAUDE_MAX_CONTEXT_TOKENS")
+    )
     const envForceModelPrefix = this.configService
       .get<string>("CLAUDE_FORCE_MODEL_PREFIX", "")
       .trim()
@@ -208,6 +286,7 @@ export class ClaudeApiService implements OnModuleInit {
             apiKey: envApiKey,
             baseUrl: envBaseUrl,
             proxyUrl: envProxyUrl || undefined,
+            maxContextTokens: envMaxContextTokens,
             source: "env",
           })
         )
@@ -307,6 +386,10 @@ export class ClaudeApiService implements OnModuleInit {
         }
         if (existing.proxyUrl !== fresh.proxyUrl) {
           existing.proxyUrl = fresh.proxyUrl
+          changed = true
+        }
+        if (existing.maxContextTokens !== fresh.maxContextTokens) {
+          existing.maxContextTokens = fresh.maxContextTokens
           changed = true
         }
         if (existing.stripThinking !== fresh.stripThinking) {
@@ -415,6 +498,7 @@ export class ClaudeApiService implements OnModuleInit {
         source: account.source,
         baseUrl: account.baseUrl,
         proxyUrl: account.proxyUrl,
+        maxContextTokens: account.maxContextTokens,
         prefix: account.prefix,
         priority: account.priority,
         modelCooldowns,
@@ -496,6 +580,31 @@ export class ClaudeApiService implements OnModuleInit {
 
   getPublicModelIds(): string[] {
     return this.getPublicModels().map((model) => model.id)
+  }
+
+  getConfiguredMaxContextTokens(model: string): number | undefined {
+    const candidates = this.getAvailableCandidatesInAttemptOrder(
+      this.resolveCandidates(model)
+    )
+    let resolved: number | undefined
+    const seenAccounts = new Set<string>()
+
+    for (const candidate of candidates) {
+      if (seenAccounts.has(candidate.account.stateKey)) {
+        continue
+      }
+      seenAccounts.add(candidate.account.stateKey)
+
+      const limit = this.normalizeMaxContextTokens(
+        candidate.account.maxContextTokens
+      )
+      if (limit === undefined) {
+        continue
+      }
+      resolved = resolved === undefined ? limit : Math.min(resolved, limit)
+    }
+
+    return resolved
   }
 
   getCursorDisplayModels(): CursorDisplayModel[] {
@@ -590,9 +699,7 @@ export class ClaudeApiService implements OnModuleInit {
       } catch (error) {
         this.markAccountTemporaryFailure(account, 504, candidate.upstreamModel)
         this.logger.debug(
-          `[Claude API] count_tokens upstream error for ${account.label || account.baseUrl}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
+          `[Claude API] count_tokens upstream error for ${account.label || account.baseUrl}: ${formatUnknownError(error)}`
         )
       }
     }
@@ -609,9 +716,15 @@ export class ClaudeApiService implements OnModuleInit {
 
   async *sendClaudeMessageStream(
     dto: CreateMessageDto,
-    forwardHeaders: AnthropicForwardHeaders = {}
+    forwardHeaders: AnthropicForwardHeaders = {},
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
-    yield* this.executeStreamWithCooldownRetry(dto, forwardHeaders, new Set())
+    yield* this.executeStreamWithCooldownRetry(
+      dto,
+      forwardHeaders,
+      new Set(),
+      abortSignal
+    )
   }
 
   private async executeWithCooldownRetry(
@@ -635,7 +748,9 @@ export class ClaudeApiService implements OnModuleInit {
       `[Claude API] Non-stream request: model=${dto.model} -> ${candidate.upstreamModel}, url=${url}`
     )
     if (process.env.LOG_DEBUG === "true") {
-      this.logger.debug(`[Claude API] Request Body: ${JSON.stringify(request.body, null, 2)}`)
+      this.logger.debug(
+        `[Claude API] Request Body: ${JSON.stringify(request.body, null, 2)}`
+      )
     }
 
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
@@ -655,10 +770,13 @@ export class ClaudeApiService implements OnModuleInit {
       try {
         response = await fetch(url, fetchOptions)
       } catch (error) {
+        this.logger.error(
+          `[Claude API] Non-stream fetch failed: account=${candidate.account.label || candidate.account.baseUrl}, model=${candidate.upstreamModel}, url=${url}, detail=${formatUnknownError(error)}`
+        )
         throw this.buildTransientFailureError(
           candidate.account,
           504,
-          error instanceof Error ? error.message : String(error),
+          formatUnknownError(error),
           candidate.upstreamModel
         )
       }
@@ -679,7 +797,9 @@ export class ClaudeApiService implements OnModuleInit {
 
       const result = (await response.json()) as AnthropicResponse
       if (process.env.LOG_DEBUG === "true") {
-        this.logger.debug(`[Claude API] Response Body: ${JSON.stringify(result, null, 2)}`)
+        this.logger.debug(
+          `[Claude API] Response Body: ${JSON.stringify(result, null, 2)}`
+        )
       }
       this.markAccountHealthy(candidate.account, candidate.upstreamModel)
       this.recordClaudeApiUsage(
@@ -716,6 +836,7 @@ export class ClaudeApiService implements OnModuleInit {
     dto: CreateMessageDto,
     forwardHeaders: AnthropicForwardHeaders,
     attemptedCandidates: Set<string>,
+    abortSignal?: AbortSignal,
     candidate: ClaudeApiCandidate = this.nextCandidate(dto.model)
   ): AsyncGenerator<string, void, unknown> {
     const requestStartedAt = Date.now()
@@ -733,7 +854,9 @@ export class ClaudeApiService implements OnModuleInit {
       `[Claude API] Stream request: model=${dto.model} -> ${candidate.upstreamModel}, url=${url}`
     )
     if (process.env.LOG_DEBUG === "true") {
-      this.logger.debug(`[Claude API] Request Body: ${JSON.stringify(request.body, null, 2)}`)
+      this.logger.debug(
+        `[Claude API] Request Body: ${JSON.stringify(request.body, null, 2)}`
+      )
     }
 
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
@@ -754,14 +877,26 @@ export class ClaudeApiService implements OnModuleInit {
         response = await this.fetchWithResponseHeadersTimeout(
           url,
           fetchOptions,
-          15_000,
-          "Claude API stream timed out waiting for upstream response headers after 15000ms"
+          180_000,
+          "Claude API stream timed out waiting for upstream response headers after 180000ms",
+          abortSignal
         )
       } catch (error) {
+        const abortedError = toUpstreamRequestAbortedError(
+          error,
+          abortSignal,
+          "Claude API stream aborted"
+        )
+        if (abortedError) {
+          throw abortedError
+        }
+        this.logger.error(
+          `[Claude API] Stream fetch failed before headers: account=${candidate.account.label || candidate.account.baseUrl}, model=${candidate.upstreamModel}, url=${url}, detail=${formatUnknownError(error)}`
+        )
         throw this.buildTransientFailureError(
           candidate.account,
           504,
-          error instanceof Error ? error.message : String(error),
+          formatUnknownError(error),
           candidate.upstreamModel
         )
       }
@@ -815,8 +950,9 @@ export class ClaudeApiService implements OnModuleInit {
         while (true) {
           const { done, value } = await this.readStreamChunkWithTimeout(
             reader,
-            60_000,
-            "Claude API stream timed out while waiting for the next SSE chunk"
+            180_000,
+            "Claude API stream timed out while waiting for the next SSE chunk",
+            abortSignal
           )
 
           if (done) {
@@ -865,6 +1001,14 @@ export class ClaudeApiService implements OnModuleInit {
         )
         return
       } catch (error) {
+        const abortedError = toUpstreamRequestAbortedError(
+          error,
+          abortSignal,
+          "Claude API stream aborted"
+        )
+        if (abortedError) {
+          throw abortedError
+        }
         this.markAccountTemporaryFailure(
           candidate.account,
           504,
@@ -888,6 +1032,7 @@ export class ClaudeApiService implements OnModuleInit {
             dto,
             forwardHeaders,
             attemptedCandidates,
+            abortSignal,
             nextCandidate
           )
           return
@@ -902,6 +1047,15 @@ export class ClaudeApiService implements OnModuleInit {
         }
       }
     } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "Claude API stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
+
       const nextCandidate =
         !emittedEvents &&
         this.shouldRetryWithNextCandidate(
@@ -919,6 +1073,7 @@ export class ClaudeApiService implements OnModuleInit {
           dto,
           forwardHeaders,
           attemptedCandidates,
+          abortSignal,
           nextCandidate
         )
         return
@@ -1282,6 +1437,7 @@ export class ClaudeApiService implements OnModuleInit {
     apiKey: string
     baseUrl?: string
     proxyUrl?: string
+    maxContextTokens?: number
     stripThinking?: boolean
     sanitizeForProxy?: boolean
     prefix?: string
@@ -1298,6 +1454,7 @@ export class ClaudeApiService implements OnModuleInit {
       apiKey: params.apiKey.trim(),
       baseUrl,
       proxyUrl: params.proxyUrl?.trim() || undefined,
+      maxContextTokens: this.normalizeMaxContextTokens(params.maxContextTokens),
       stripThinking: params.stripThinking === true,
       sanitizeForProxy: params.sanitizeForProxy === true,
       prefix,
@@ -1630,6 +1787,7 @@ export class ClaudeApiService implements OnModuleInit {
               apiKey: entry.apiKey,
               baseUrl: entry.baseUrl,
               proxyUrl: entry.proxyUrl,
+              maxContextTokens: entry.maxContextTokens,
               stripThinking: entry.stripThinking,
               sanitizeForProxy: entry.sanitizeForProxy,
               prefix: entry.prefix,
@@ -2246,6 +2404,8 @@ export class ClaudeApiService implements OnModuleInit {
     delete raw._pendingToolUseIds
 
     raw.model = upstreamModel
+    raw.tools = this.normalizeClaudeTools(raw.tools)
+    raw.tool_choice = this.normalizeClaudeToolChoice(raw.tool_choice)
     if (account.stripThinking) {
       delete raw.thinking
       delete raw.output_config
@@ -2322,6 +2482,44 @@ export class ClaudeApiService implements OnModuleInit {
     body.tools = sanitized
   }
 
+  private normalizeClaudeTools(tools: unknown): unknown {
+    if (!Array.isArray(tools)) {
+      return tools
+    }
+
+    return tools.map((tool): unknown => {
+      if (!tool || typeof tool !== "object") {
+        return tool
+      }
+
+      const normalized = {
+        ...(tool as Record<string, unknown>),
+      }
+
+      if (normalized.type === "function") {
+        delete normalized.type
+      }
+
+      return normalized
+    })
+  }
+
+  private normalizeClaudeToolChoice(toolChoice: unknown): unknown {
+    if (!toolChoice || typeof toolChoice !== "object") {
+      return toolChoice
+    }
+
+    const normalized = {
+      ...(toolChoice as Record<string, unknown>),
+    }
+
+    if (normalized.type === "function") {
+      normalized.type = "tool"
+    }
+
+    return normalized
+  }
+
   private getAvailableCandidatesInAttemptOrder(
     candidates: ClaudeApiCandidate[]
   ): ClaudeApiCandidate[] {
@@ -2387,7 +2585,7 @@ export class ClaudeApiService implements OnModuleInit {
       }
     } catch (error) {
       this.logger.error(
-        `Failed to parse proxy URL ${proxyUrl}: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to parse proxy URL ${proxyUrl}: ${formatUnknownError(error)}`
       )
       return undefined
     }
@@ -2508,38 +2706,63 @@ export class ClaudeApiService implements OnModuleInit {
     url: string,
     options: RequestInit & { dispatcher?: unknown },
     timeoutMs: number,
-    timeoutMessage: string
+    timeoutMessage: string,
+    abortSignal?: AbortSignal
   ): Promise<Response> {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const requestSignal = createAbortSignalWithTimeout(timeoutMs, abortSignal)
 
     try {
-      return await fetch(url, { ...options, signal: controller.signal })
+      return await fetch(url, { ...options, signal: requestSignal.signal })
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (requestSignal.didTimeout()) {
         throw new Error(timeoutMessage)
+      }
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "Claude API request aborted"
+      )
+      if (abortedError) {
+        throw abortedError
       }
       throw error
     } finally {
-      clearTimeout(timer)
+      requestSignal.cleanup()
     }
   }
 
   private async readStreamChunkWithTimeout(
     reader: ReadableStreamDefaultReader<Uint8Array>,
     timeoutMs: number,
-    timeoutMessage: string
+    timeoutMessage: string,
+    abortSignal?: AbortSignal
   ): Promise<ReadableStreamReadResult<Uint8Array>> {
     let timer: NodeJS.Timeout | undefined
+    const externalAbort = createAbortPromise(
+      abortSignal,
+      "Claude API stream aborted"
+    )
 
     try {
       return await Promise.race([
         reader.read(),
+        ...(externalAbort.promise ? [externalAbort.promise] : []),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
         }),
       ])
+    } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "Claude API stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
+      throw error
     } finally {
+      externalAbort.cleanup()
       if (timer) {
         clearTimeout(timer)
       }
