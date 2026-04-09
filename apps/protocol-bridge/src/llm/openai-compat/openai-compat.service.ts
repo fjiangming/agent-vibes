@@ -408,7 +408,8 @@ interface OpenaiCompatAccountFileEntry {
   apiKey?: string
   baseUrl?: string
   proxyUrl?: string
-  preferResponsesApi?: boolean
+  preferResponsesApi?: boolean | string
+  responsesApiModels?: string[] | string
   maxContextTokens?: number
 }
 
@@ -1031,7 +1032,7 @@ export class OpenaiCompatService implements OnModuleInit {
                   a.preferResponsesApi === "true" ||
                   a.preferResponsesApi === true,
                 responsesApiModels: this.parseResponsesApiModels(
-                  (a as Record<string, unknown>).responsesApiModels
+                  a.responsesApiModels
                 ),
                 maxContextTokens: a.maxContextTokens,
                 source: "file",
