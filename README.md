@@ -2,11 +2,11 @@
 
 English | [中文](README_zh.md)
 
-> **Unified Agent Gateway** �?Use **Antigravity** and **Codex** AI backends with **Claude Code CLI** and **Cursor IDE**.
+> **Unified Agent Gateway** — Use **Antigravity** and **Codex** AI backends with **Claude Code CLI** and **Cursor IDE**.
 
 [![CI](https://github.com/epfff/cursor-proxy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/epfff/cursor-proxy/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-�?4-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-≥24-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com/)
 [![Fastify](https://img.shields.io/badge/Fastify-HTTP%2F2-000000?logo=fastify&logoColor=white)](https://fastify.dev/)
@@ -16,14 +16,14 @@ Cursor Proxy is a proxy server that connects AI coding clients to AI backends th
 
 **Clients** (front-end):
 
-- **Claude Code CLI** �?Anthropic Messages API
-- **Cursor IDE** �?Protocol-compatible ConnectRPC/gRPC implementation
+- **Claude Code CLI** — Anthropic Messages API
+- **Cursor IDE** — Protocol-compatible ConnectRPC/gRPC implementation
 
 **Backends** (back-end):
 
-- **Antigravity IDE** �?Google Cloud Code API with protocol-compliant requests
-- **Codex CLI** �?OpenAI-compatible API for GPT and Codex models
-- **Claude-Compatible API** �?Anthropic-compatible `/v1/messages` with third-party keys
+- **Antigravity IDE** — Google Cloud Code API with protocol-compliant requests
+- **Codex CLI** — OpenAI-compatible API for GPT and Codex models
+- **Claude-Compatible API** — Anthropic-compatible `/v1/messages` with third-party keys
 
 > **Disclaimer:** This project is for educational and research purposes only.
 >
@@ -32,21 +32,21 @@ Cursor Proxy is a proxy server that connects AI coding clients to AI backends th
 ## Architecture
 ```text
 + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-�?                         Clients                            �?
-�?                                                            �?
-�? Claude Code CLI                Cursor IDE                  �?
-�? POST /v1/messages              POST /agent.v1.*            �?
-�? (Anthropic SSE)                (ConnectRPC/gRPC)           �?
+│                          Clients                            │
+│                                                             │
+│  Claude Code CLI                Cursor IDE                  │
+│  POST /v1/messages              POST /agent.v1.*            │
+│  (Anthropic SSE)                (ConnectRPC/gRPC)           │
 + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-                              �?
-                              �?
+                              │
+                              ▼
 + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-�?                 Cursor Proxy Server                   �?
-�?                                                            �?
-�? Gemini           �?Antigravity IDE (Cloud Code)            �?
-�? Claude           �?Claude-Compatible API / Antigravity     �?
-�? GPT              �?Codex CLI / OpenAI-compatible API       �?
-�?                                                            �?
+│                  Cursor Proxy Server                   │
+│                                                             │
+│  Gemini           → Antigravity IDE (Cloud Code)            │
+│  Claude           → Claude-Compatible API / Antigravity     │
+│  GPT              → Codex CLI / OpenAI-compatible API       │
+│                                                             │
 + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
 ```
 
@@ -138,11 +138,11 @@ cursor --install-extension cursor-proxy-win32-x64-0.1.0.vsix --force
 
 Restart Cursor after installation.
 The extension auto-starts the proxy server and guides you through first-run setup
-(SSL certificates, account sync, network forwarding �?all from the Command Palette).
+(SSL certificates, account sync, network forwarding — all from the Command Palette).
 
 **Uninstall Extension Cleanly:**
 
-> **⚠️ Important:** The proxy bridge process is designed as a **persistent background daemon** �?it intentionally survives Cursor restarts so that forwarding stays active between sessions. This means simply closing Cursor will **not** stop the bridge. You must explicitly stop it before uninstalling.
+> **⚠️ Important:** The proxy bridge process is designed as a **persistent background daemon** — it intentionally survives Cursor restarts so that forwarding stays active between sessions. This means simply closing Cursor will **not** stop the bridge. You must explicitly stop it before uninstalling.
 
 1. **Stop the Bridge daemon**: Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and execute **Cursor Proxy: Stop Server**. This sends a termination signal to the background bridge process and releases all file locks.
 
@@ -158,7 +158,7 @@ The extension auto-starts the proxy server and guides you through first-run setu
      ```
 
 2. Go to the Extensions panel in Cursor, search for **Cursor Proxy**, and click **Uninstall**.
-3. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). If the folder refuses to delete, a bridge process is still running �?go back to Step 1.
+3. Delete the generated backend data folder from your user directory (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.cursor-proxy"`, macOS/Linux: `rm -rf ~/.cursor-proxy`). If the folder refuses to delete, a bridge process is still running — go back to Step 1.
 4. **Upgrading from old version?** If you previously used the extension under its old name (`agent-vibes`), you may also need to:
    - Uninstall the old extension `funny-vibes.agent-vibes` from the Extensions panel (or run `cursor --uninstall-extension funny-vibes.agent-vibes`).
    - Delete the legacy data directory `~/.agent-vibes` (Windows: `Remove-Item -Recurse -Force "$env:USERPROFILE\.agent-vibes"`, macOS/Linux: `rm -rf ~/.agent-vibes`).
@@ -210,7 +210,7 @@ Behavior:
 }
 ```
 
-Set `"quotaFallbackModel"` to the desired fallback model ID, or remove the field entirely to disable (default: disabled �?returns 429 as before).
+Set `"quotaFallbackModel"` to the desired fallback model ID, or remove the field entirely to disable (default: disabled — returns 429 as before).
 
 ### 2. GPT
 Use for GPT models.
@@ -311,59 +311,59 @@ Behavior:
 ```text
 agent-vibes/
 ├── bin/
-�?  └── agent-vibes                            # CLI entry point
+│   └── agent-vibes                            # CLI entry point
 ├── apps/
-�?  └── protocol-bridge/                         # Main proxy server (NestJS + Fastify)
-�?      ├── src/
-�?      �?  ├── main.ts                        # App bootstrap (Fastify adapter, CORS, Swagger)
-�?      �?  ├── app.module.ts                  # NestJS root module
-�?      �?  ├── health.controller.ts           # Health check + pool status
-�?      �?  �?
-�?      �?  ├── protocol/                      # �?Protocol adapters
-�?      �?  �?  ├── cursor/                    #   CursorModule �?Cursor IDE (ConnectRPC)
-�?      �?  �?  �?  ├── cursor.module.ts
-�?      �?  �?  �?  ├── cursor-adapter.controller.ts
-�?      �?  �?  �?  ├── cursor-connect-stream.service.ts
-�?      �?  �?  �?  ├── cursor-grpc.service.ts
-�?      �?  �?  �?  └── ...                    #   (auth, parser, session, etc.)
-�?      �?  �?  └── anthropic/                 #   AnthropicModule �?Claude Code CLI
-�?      �?  �?      ├── anthropic.module.ts
-�?      �?  �?      ├── messages.controller.ts  #   POST /v1/messages
-�?      �?  �?      ├── messages.service.ts
-�?      �?  �?      └── dto/                   #   Request DTOs
-�?      �?  �?
-�?      �?  ├── context/                       # �?Conversation context
-�?      �?  �?  ├── history.module.ts          #   HistoryModule
-�?      �?  �?  ├── tokenizer.module.ts        #   TokenizerModule
-�?      �?  �?  ├── conversation-truncator.service.ts
-�?      �?  �?  ├── tokenizer.service.ts
-�?      �?  �?  └── ...                        #   (summary, token counting, tool integrity)
-�?      �?  �?
-�?      �?  ├── llm/                           # �?LLM layer (Routing + Providers)
-�?      �?  �?  ├── model.module.ts            #   ModelModule
-�?      �?  �?  ├── model-registry.ts          #   Model alias �?backend ID mapping
-�?      �?  �?  ├── model-router.service.ts    #   Multi-backend dispatcher
-�?      �?  �?  ├── claude-api/                #   ClaudeApiModule �?Claude-compatible key pool
-�?      �?  �?  ├── google/                    #   GoogleModule �?Cloud Code API
-�?      �?  �?  ├── codex/                     #   CodexModule �?OpenAI Codex reverse proxy
-�?      �?  �?  ├── native/                    #   NativeModule �?Process pool workers
-�?      �?  �?  └── websearch/                 #   WebsearchModule �?Web search
-�?      �?  �?
-�?      �?  ├── shared/                        # Infrastructure (bootstrap, guards, env, types)
-�?      �?  �?  ├── content-type-parsers.ts    #   gRPC/ConnectRPC body parsers
-�?      �?  �?  ├── request-hooks.ts           #   Request logging hooks
-�?      �?  �?  ├── env.validation.ts          #   Environment variable validation
-�?      �?  �?  ├── api-key.guard.ts           #   API key authentication guard
-�?      �?  �?  └── anthropic.ts, cloud-code.ts #  Shared TypeScript types
-�?      �?  �?
-�?      �?  └── gen/                           # Auto-generated protobuf (DO NOT edit)
-�?      �?
-�?      ├── proto/                             # Protobuf definitions (protocol-compatible, local only)
-�?      └── data/                              # Per-backend credential pools (JSON)
+│   └── protocol-bridge/                         # Main proxy server (NestJS + Fastify)
+│       ├── src/
+│       │   ├── main.ts                        # App bootstrap (Fastify adapter, CORS, Swagger)
+│       │   ├── app.module.ts                  # NestJS root module
+│       │   ├── health.controller.ts           # Health check + pool status
+│       │   │
+│       │   ├── protocol/                      # ← Protocol adapters
+│       │   │   ├── cursor/                    #   CursorModule — Cursor IDE (ConnectRPC)
+│       │   │   │   ├── cursor.module.ts
+│       │   │   │   ├── cursor-adapter.controller.ts
+│       │   │   │   ├── cursor-connect-stream.service.ts
+│       │   │   │   ├── cursor-grpc.service.ts
+│       │   │   │   └── ...                    #   (auth, parser, session, etc.)
+│       │   │   └── anthropic/                 #   AnthropicModule — Claude Code CLI
+│       │   │       ├── anthropic.module.ts
+│       │   │       ├── messages.controller.ts  #   POST /v1/messages
+│       │   │       ├── messages.service.ts
+│       │   │       └── dto/                   #   Request DTOs
+│       │   │
+│       │   ├── context/                       # ← Conversation context
+│       │   │   ├── history.module.ts          #   HistoryModule
+│       │   │   ├── tokenizer.module.ts        #   TokenizerModule
+│       │   │   ├── conversation-truncator.service.ts
+│       │   │   ├── tokenizer.service.ts
+│       │   │   └── ...                        #   (summary, token counting, tool integrity)
+│       │   │
+│       │   ├── llm/                           # ← LLM layer (Routing + Providers)
+│       │   │   ├── model.module.ts            #   ModelModule
+│       │   │   ├── model-registry.ts          #   Model alias → backend ID mapping
+│       │   │   ├── model-router.service.ts    #   Multi-backend dispatcher
+│       │   │   ├── claude-api/                #   ClaudeApiModule — Claude-compatible key pool
+│       │   │   ├── google/                    #   GoogleModule — Cloud Code API
+│       │   │   ├── codex/                     #   CodexModule — OpenAI Codex reverse proxy
+│       │   │   ├── native/                    #   NativeModule — Process pool workers
+│       │   │   └── websearch/                 #   WebsearchModule — Web search
+│       │   │
+│       │   ├── shared/                        # Infrastructure (bootstrap, guards, env, types)
+│       │   │   ├── content-type-parsers.ts    #   gRPC/ConnectRPC body parsers
+│       │   │   ├── request-hooks.ts           #   Request logging hooks
+│       │   │   ├── env.validation.ts          #   Environment variable validation
+│       │   │   ├── api-key.guard.ts           #   API key authentication guard
+│       │   │   └── anthropic.ts, cloud-code.ts #  Shared TypeScript types
+│       │   │
+│       │   └── gen/                           # Auto-generated protobuf (DO NOT edit)
+│       │
+│       ├── proto/                             # Protobuf definitions (protocol-compatible, local only)
+│       └── data/                              # Per-backend credential pools (JSON)
 ├── packages/
-�?  ├── eslint-config/                         # Shared ESLint config
-�?  ├── prettier-config/                       # Shared Prettier config
-�?  └── typescript-config/                     # Shared TypeScript base config
+│   ├── eslint-config/                         # Shared ESLint config
+│   ├── prettier-config/                       # Shared Prettier config
+│   └── typescript-config/                     # Shared TypeScript base config
 └── scripts/
     ├── lib/                                   # Shared cross-platform utilities
     ├── accounts/                              # Account credential sync helpers
@@ -386,7 +386,7 @@ agent-vibes/
 ## Tech Stack
 | Component   | Technology                                         |
 | ----------- | -------------------------------------------------- |
-| Runtime     | Node.js �?24                                       |
+| Runtime     | Node.js ≥ 24                                       |
 | Framework   | NestJS 11 + Fastify (HTTP/2 + HTTP/1.1)            |
 | Language    | TypeScript (ES2021, CommonJS)                      |
 | Protobuf    | `@bufbuild/protobuf` v2 + `@connectrpc/connect` v2 |
@@ -404,12 +404,12 @@ agent-vibes/
   - A strict quality gate that runs `lint`, `types`, `build`, and `test` to ensure code health. **This pipeline does NOT generate downloadable release binaries or VSCode extensions.**
 - **`release.yml`** (Triggered **ONLY** when a `v*` tag like `v0.2.3` is pushed)
   - The actual build and release factory. It compiles the native proxy binaries across different systems (macOS, Linux, Windows), bundles them into the VSCode extension shell (`.vsix`), and automatically publishes a new GitHub Release page.
-- **`deploy-proxy.yml`** �?Auto-deploy on push to `main` (only `apps/protocol-bridge/**` changes)
-  - Build �?SCP to server �?restart systemd service
+- **`deploy-proxy.yml`** — Auto-deploy on push to `main` (only `apps/protocol-bridge/**` changes)
+  - Build → SCP to server → restart systemd service
   - Production uses Let's Encrypt SSL for HTTP/2
-- **`claude.yml`** �?Claude Code automation
-  - Issue handling: `claude` label �?auto-implement �?create PR to `dev`
-  - PR review: auto-review �?merge after approval
+- **`claude.yml`** — Claude Code automation
+  - Issue handling: `claude` label → auto-implement → create PR to `dev`
+  - PR review: auto-review → merge after approval
   - Interactive: `@claude` or `@c` in comments
 
 | Branch             | Purpose                          |
@@ -424,7 +424,7 @@ Join the discussion and share your thoughts about Cursor Proxy on [LINUX DO](htt
 ## Contributing
 Found a bug or have an idea? Use our [issue templates](https://github.com/epfff/cursor-proxy/issues/new/choose) to report bugs or request features.
 
-> **Tip:** Run `agent-vibes issues` (or `npm run issues`) to auto-collect diagnostics �?the report is copied to your clipboard, ready to paste into the bug report template.
+> **Tip:** Run `agent-vibes issues` (or `npm run issues`) to auto-collect diagnostics — the report is copied to your clipboard, ready to paste into the bug report template.
 
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening PRs.
 
