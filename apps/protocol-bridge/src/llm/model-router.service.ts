@@ -215,7 +215,9 @@ export class ModelRouterService {
     isThinking: boolean
   }): GptBackendCandidates | null {
     const candidates: ModelRouteResult[] = []
-    const openaiCompatAvailable = this.getOpenaiCompatSupportsModel(target.model)
+    const openaiCompatAvailable = this.getOpenaiCompatSupportsModel(
+      target.model
+    )
     const codexAvailable = this.getCodexAvailability(target.model)
 
     // Codex first, openai-compat as fallback
@@ -425,7 +427,7 @@ export class ModelRouterService {
       }
 
       if (status === 400) {
-        return /model|provider|upstream|quota|rate limit|unavailable|unsupported|overloaded|temporar/.test(
+        return /model|provider|upstream|quota|rate limit|unavailable|unsupported|overloaded|temporar|prompt too long|prompt limit|context(?: is)? too large|token limit|too many tokens|exceeds?.*limit/.test(
           message
         )
       }

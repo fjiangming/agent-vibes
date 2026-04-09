@@ -7,14 +7,11 @@ import { X509Certificate } from "crypto"
 import { ConfigManager } from "../services/config-manager"
 import { BridgeManager } from "../services/bridge-manager"
 import { NetworkManager } from "../services/network-manager"
-import {
-  ChatGptRegisterInput,
-  ChatGptRegisterService,
-} from "../services/chatgpt-register-service"
 import { startOAuthFlow } from "../services/oauth-service"
 import { startCodexOAuthFlow } from "../services/codex-oauth-service"
 import { CMD, CURSOR_DOMAINS } from "../constants"
 import { logger } from "../utils/logger"
+import { detectCurrentCursorVersion } from "../utils/cursor-version"
 
 type AccountChannel = "antigravity" | "claude-api" | "codex" | "openai-compat"
 
@@ -46,6 +43,12 @@ type DashboardOverviewPayload = {
   steps: DashboardOverviewStep[]
 }
 
+type DashboardVersionPayload = {
+  extensionVersion: string
+  currentCursorVersion: string
+  compatibleCursorVersion: string
+}
+
 /**
  * Webview Panel for the Cursor Proxy Dashboard.
  * Singleton — opening an existing panel brings it to focus.
@@ -56,13 +59,16 @@ export class DashboardPanel {
 
   private readonly panel: vscode.WebviewPanel
   private readonly extensionUri: vscode.Uri
+  private readonly versionInfo: DashboardVersionPayload
   private disposables: vscode.Disposable[] = []
-  private readonly chatgptRegister: ChatGptRegisterService
   private readonly handleBridgeStateChanged = () => {
     if (this.panel.visible) {
       this.sendAllData()
     }
   }
+
+  private accountFileWatchers: vscode.FileSystemWatcher[] = []
+  private accountFileDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -73,7 +79,7 @@ export class DashboardPanel {
   ) {
     this.panel = panel
     this.extensionUri = extensionUri
-    this.chatgptRegister = new ChatGptRegisterService(extensionUri.fsPath)
+    this.versionInfo = this.getVersionInfo()
 
     // Set initial HTML
     this.panel.webview.html = this.getHtml()
@@ -110,6 +116,9 @@ export class DashboardPanel {
     )
 
     this.bridge.on("stateChanged", this.handleBridgeStateChanged)
+
+    // Watch account config files for external changes
+    this.watchAccountFiles()
   }
 
   /**
@@ -171,6 +180,16 @@ export class DashboardPanel {
           const filePath = this.getChannelPath(msg.channel)
           if (filePath) {
             this.config.addAccount(filePath, msg.data)
+            this.sendAllData()
+          }
+        }
+        break
+
+      case "updateAccount":
+        if (msg.channel !== undefined && msg.index !== undefined && msg.data) {
+          const filePath = this.getChannelPath(msg.channel)
+          if (filePath) {
+            this.config.updateAccount(filePath, msg.index, msg.data)
             this.sendAllData()
           }
         }
@@ -269,20 +288,6 @@ export class DashboardPanel {
 
       case "startCodexOAuth":
         void this.handleStartCodexOAuth()
-        break
-
-      case "startChatgptRegister":
-        if (msg.data) {
-          void this.handleStartChatgptRegister(msg.data)
-        }
-        break
-
-      case "persistRegisterDefaults":
-        if (msg.data) {
-          this.persistChatGptRegisterDefaults(
-            this.sanitizeChatGptRegisterInput(msg.data)
-          )
-        }
         break
     }
   }
@@ -600,6 +605,17 @@ export class DashboardPanel {
         vscode.ConfigurationTarget.Global
       )
 
+      if (
+        key === "dataDir" ||
+        key === "antigravityAccountsPath" ||
+        key === "codexAccountsPath" ||
+        key === "openaiCompatAccountsPath" ||
+        key === "claudeApiAccountsPath"
+      ) {
+        this.config.ensureDirectories()
+        this.watchAccountFiles()
+      }
+
       if (key !== "language") {
         vscode.window.showInformationMessage(
           str
@@ -702,7 +718,6 @@ export class DashboardPanel {
     }
     const accountsData = {
       ...channelAccountsData,
-      chatgptRegisterDefaults: this.getChatGptRegisterDefaults(),
     }
 
     const totalAccounts = Object.values(channelAccountsData).reduce(
@@ -716,7 +731,9 @@ export class DashboardPanel {
       forwarding: this.network.isForwardingActive(),
       hasCertificates: this.config.hasCertificates(),
       totalAccounts,
+      defaultProxyUrl: this.getDefaultProxyUrl(),
       setup: this.getOverviewPayload(channelAccountsData),
+      versions: this.versionInfo,
     }
 
     // Status
@@ -1509,12 +1526,6 @@ export class DashboardPanel {
     }
   }
 
-  private pickOptionalString(value: unknown): string | undefined {
-    if (typeof value !== "string") return undefined
-    const trimmed = value.trim()
-    return trimmed.length > 0 ? trimmed : undefined
-  }
-
   /**
    * Codex OAuth2 PKCE flow — opens browser for OpenAI authorization.
    */
@@ -1587,74 +1598,6 @@ export class DashboardPanel {
     }
   }
 
-  private getChatGptRegisterDefaults(): Record<string, unknown> {
-    return this.config.readLocalConfig("chatgptRegister", {
-      apiUrl: "",
-      adminToken: "",
-      customAuth: "",
-      domain: "",
-      domains: [],
-      enabledDomains: [],
-      subdomain: "",
-      randomSubdomain: false,
-      fingerprint: "",
-      proxyUrl: "",
-    })
-  }
-
-  private normalizeStringArray(value: unknown): string[] {
-    if (Array.isArray(value)) {
-      return value
-        .map((item) => String(item || "").trim())
-        .filter((item) => item.length > 0)
-    }
-
-    if (typeof value === "string") {
-      return value
-        .split(/\r?\n|,/)
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0)
-    }
-
-    return []
-  }
-
-  private sanitizeChatGptRegisterInput(
-    data: Record<string, unknown>
-  ): ChatGptRegisterInput {
-    const domains = this.normalizeStringArray(data.domains)
-    const enabledDomains = this.normalizeStringArray(data.enabledDomains)
-
-    return {
-      apiUrl: String(data.apiUrl || "").trim(),
-      adminToken: String(data.adminToken || "").trim(),
-      customAuth: String(data.customAuth || "").trim() || undefined,
-      domain: String(data.domain || "").trim() || undefined,
-      domains,
-      enabledDomains,
-      subdomain: String(data.subdomain || "").trim() || undefined,
-      randomSubdomain: Boolean(data.randomSubdomain),
-      fingerprint: String(data.fingerprint || "").trim() || undefined,
-      proxyUrl: String(data.proxyUrl || "").trim() || undefined,
-      password: String(data.password || "").trim() || undefined,
-    }
-  }
-
-  private persistChatGptRegisterDefaults(input: ChatGptRegisterInput): void {
-    this.config.writeLocalConfig("chatgptRegister", {
-      apiUrl: input.apiUrl,
-      adminToken: input.adminToken,
-      customAuth: input.customAuth || "",
-      domain: input.domain || "",
-      domains: input.domains || [],
-      enabledDomains: input.enabledDomains || [],
-      subdomain: input.subdomain || "",
-      randomSubdomain: Boolean(input.randomSubdomain),
-      fingerprint: input.fingerprint || "",
-      proxyUrl: input.proxyUrl || "",
-    })
-  }
-
   private upsertCodexAccount(account: Record<string, unknown>): void {
     const filePath = this.config.codexAccountsPath
     const accounts = this.config.readAccounts(filePath)
@@ -1696,50 +1639,6 @@ export class DashboardPanel {
     this.config.writeAccounts(filePath, nextAccounts)
   }
 
-  private async handleStartChatgptRegister(
-    rawData: Record<string, unknown>
-  ): Promise<void> {
-    const input = this.sanitizeChatGptRegisterInput(rawData)
-    const logs: string[] = []
-    const postStatus = (status: string, message: string) => {
-      this.panel.webview.postMessage({
-        type: "chatgptRegisterStatus",
-        data: {
-          status,
-          message,
-          logs,
-        },
-      })
-    }
-
-    this.persistChatGptRegisterDefaults(input)
-    postStatus("loading", "Starting ChatGPT registration...")
-
-    try {
-      const result = await this.chatgptRegister.register(input, (line) => {
-        logs.push(line)
-        postStatus("loading", line)
-      })
-
-      this.upsertCodexAccount(result.account)
-
-      const accountLabel =
-        String(result.account.email || "").trim() ||
-        String(result.account.accountId || "").trim() ||
-        "unknown"
-      const planType = String(result.account.planType || "").trim()
-
-      postStatus(
-        "success",
-        `Codex account added: ${accountLabel}${planType ? ` (${planType})` : ""}`
-      )
-      this.sendAllData()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      postStatus("error", message)
-    }
-  }
-
   private getChannelData(channel: AccountChannel): DashboardAccountChannelData {
     const filePath = this.getChannelPath(channel)
     if (!filePath) {
@@ -1778,6 +1677,33 @@ export class DashboardPanel {
           ? "custom"
           : "default"
     }
+  }
+
+  private getDefaultProxyUrl(): string {
+    const httpProxy = vscode.workspace
+      .getConfiguration("http")
+      .get<string>("proxy", "")
+      .trim()
+
+    if (httpProxy) {
+      return httpProxy
+    }
+
+    const envCandidates = [
+      process.env.HTTPS_PROXY,
+      process.env.HTTP_PROXY,
+      process.env.https_proxy,
+      process.env.http_proxy,
+    ]
+
+    for (const candidate of envCandidates) {
+      const value = String(candidate || "").trim()
+      if (value) {
+        return value
+      }
+    }
+
+    return ""
   }
 
   private async openAccountFile(channel: string): Promise<void> {
@@ -1853,8 +1779,115 @@ export class DashboardPanel {
     return html
   }
 
+  private getVersionInfo(): DashboardVersionPayload {
+    const packageJsonPath = path.join(this.extensionUri.fsPath, "package.json")
+
+    try {
+      const raw = fs.readFileSync(packageJsonPath, "utf-8")
+      const parsed = JSON.parse(raw) as {
+        version?: unknown
+        agentVibes?: {
+          cursorVersion?: unknown
+        }
+      }
+
+      const extensionVersion =
+        typeof parsed.version === "string" && parsed.version.trim().length > 0
+          ? parsed.version.trim()
+          : "unknown"
+      const compatibleCursorVersion =
+        typeof parsed.agentVibes?.cursorVersion === "string" &&
+        parsed.agentVibes.cursorVersion.trim().length > 0
+          ? parsed.agentVibes.cursorVersion.trim()
+          : "unknown"
+      const currentCursorVersion =
+        detectCurrentCursorVersion() || compatibleCursorVersion
+
+      return {
+        extensionVersion,
+        currentCursorVersion,
+        compatibleCursorVersion,
+      }
+    } catch (error) {
+      logger.warn(
+        `Failed to read extension version metadata: ${error instanceof Error ? error.message : String(error)}`
+      )
+      return {
+        extensionVersion: "unknown",
+        currentCursorVersion: "unknown",
+        compatibleCursorVersion: "unknown",
+      }
+    }
+  }
+
+  /**
+   * Watch all account config files for external changes and auto-refresh the panel.
+   */
+  private watchAccountFiles(): void {
+    for (const watcher of this.accountFileWatchers) {
+      watcher.dispose()
+    }
+    this.accountFileWatchers = []
+
+    const channels: AccountChannel[] = [
+      "antigravity",
+      "codex",
+      "openai-compat",
+      "claude-api",
+    ]
+    const watchedFiles = new Set<string>()
+
+    const queueRefresh = () => {
+      if (this.accountFileDebounceTimer) {
+        clearTimeout(this.accountFileDebounceTimer)
+      }
+      this.accountFileDebounceTimer = setTimeout(() => {
+        this.accountFileDebounceTimer = null
+        if (this.panel.visible) {
+          this.sendAllData()
+        }
+      }, 300)
+    }
+
+    for (const channel of channels) {
+      const filePath = this.getChannelPath(channel)
+      if (!filePath) continue
+
+      const normalizedFilePath = path.resolve(filePath)
+      if (watchedFiles.has(normalizedFilePath)) continue
+      watchedFiles.add(normalizedFilePath)
+
+      try {
+        const watcher = vscode.workspace.createFileSystemWatcher(
+          new vscode.RelativePattern(
+            path.dirname(normalizedFilePath),
+            path.basename(normalizedFilePath)
+          )
+        )
+
+        watcher.onDidChange(queueRefresh, null, this.disposables)
+        watcher.onDidCreate(queueRefresh, null, this.disposables)
+        watcher.onDidDelete(queueRefresh, null, this.disposables)
+
+        this.accountFileWatchers.push(watcher)
+      } catch (err) {
+        logger.debug(
+          `Failed to watch ${normalizedFilePath}: ${err instanceof Error ? err.message : String(err)}`
+        )
+      }
+    }
+  }
+
   dispose(): void {
     this.bridge.off("stateChanged", this.handleBridgeStateChanged)
+    for (const watcher of this.accountFileWatchers) {
+      watcher.dispose()
+    }
+    this.accountFileWatchers = []
+    if (this.accountFileDebounceTimer) {
+      clearTimeout(this.accountFileDebounceTimer)
+      this.accountFileDebounceTimer = null
+    }
     DashboardPanel.currentPanel = undefined
     this.panel.dispose()
     while (this.disposables.length) {
