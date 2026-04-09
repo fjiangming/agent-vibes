@@ -49,6 +49,11 @@ import {
   BackendPoolEntryState,
   BackendPoolStatus,
 } from "../shared/backend-pool-status"
+import {
+  createAbortPromise,
+  createAbortSignalWithTimeout,
+  toUpstreamRequestAbortedError,
+} from "../shared/abort-signal"
 import { sanitizeOpenAiChatToolCallIntegrity } from "../shared/openai-tool-call-integrity"
 
 // ── Types for OpenAI Chat Completions API ──────────────────────────────
@@ -782,38 +787,63 @@ export class OpenaiCompatService implements OnModuleInit {
     url: string,
     options: RequestInit & { dispatcher?: unknown },
     timeoutMs: number,
-    timeoutMessage: string
+    timeoutMessage: string,
+    abortSignal?: AbortSignal
   ): Promise<Response> {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const requestSignal = createAbortSignalWithTimeout(timeoutMs, abortSignal)
 
     try {
-      return await fetch(url, { ...options, signal: controller.signal })
+      return await fetch(url, { ...options, signal: requestSignal.signal })
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (requestSignal.didTimeout()) {
         throw new Error(timeoutMessage)
+      }
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "OpenAI-compatible request aborted"
+      )
+      if (abortedError) {
+        throw abortedError
       }
       throw error
     } finally {
-      clearTimeout(timer)
+      requestSignal.cleanup()
     }
   }
 
   private async readStreamChunkWithTimeout(
     reader: ReadableStreamDefaultReader<Uint8Array>,
     timeoutMs: number,
-    timeoutMessage: string
+    timeoutMessage: string,
+    abortSignal?: AbortSignal
   ): Promise<ReadableStreamReadResult<Uint8Array>> {
     let timer: NodeJS.Timeout | undefined
+    const externalAbort = createAbortPromise(
+      abortSignal,
+      "OpenAI-compatible stream aborted"
+    )
 
     try {
       return await Promise.race([
         reader.read(),
+        ...(externalAbort.promise ? [externalAbort.promise] : []),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
         }),
       ])
+    } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "OpenAI-compatible stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
+      throw error
     } finally {
+      externalAbort.cleanup()
       if (timer) {
         clearTimeout(timer)
       }
@@ -2059,7 +2089,8 @@ export class OpenaiCompatService implements OnModuleInit {
    * Returns an async generator yielding Claude SSE event strings.
    */
   async *sendClaudeMessageStream(
-    dto: CreateMessageDto
+    dto: CreateMessageDto,
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
     if (!this.isAvailable()) {
       throw new Error(
@@ -2076,7 +2107,8 @@ export class OpenaiCompatService implements OnModuleInit {
         for await (const event of this.sendClaudeMessageStreamViaResponses(
           dto,
           account,
-          this.responsesApiMode !== "always"
+          this.responsesApiMode !== "always",
+          abortSignal
         )) {
           emittedResponsesEvents = true
           yield event
@@ -2084,6 +2116,14 @@ export class OpenaiCompatService implements OnModuleInit {
         this.recordEndpointSuccess(dto.model, "responses", account)
         return
       } catch (e) {
+        const abortedError = toUpstreamRequestAbortedError(
+          e,
+          abortSignal,
+          "OpenAI-compatible stream aborted"
+        )
+        if (abortedError) {
+          throw abortedError
+        }
         if (
           emittedResponsesEvents ||
           !this.shouldFallbackToChatCompletionsApi(e, dto.model)
@@ -2102,13 +2142,23 @@ export class OpenaiCompatService implements OnModuleInit {
       for await (const event of this.sendClaudeMessageStreamViaChatCompletions(
         dto,
         account,
-        endpoint !== "responses"
+        endpoint !== "responses",
+        abortSignal
       )) {
         emittedChatEvents = true
         yield event
       }
       this.recordEndpointSuccess(dto.model, "chat-completions", account)
     } catch (e) {
+      const abortedError = toUpstreamRequestAbortedError(
+        e,
+        abortSignal,
+        "OpenAI-compatible stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
+
       const errorMsg = (e as Error).message || ""
       const status = this.getBackendErrorStatus(e)
 
@@ -2120,7 +2170,12 @@ export class OpenaiCompatService implements OnModuleInit {
         this.logger.warn(
           `[OpenAI-Compat] Chat Completions stream returned ${status} for ${dto.model}, falling back to Responses API`
         )
-        yield* this.sendClaudeMessageStreamViaResponses(dto, account)
+        yield* this.sendClaudeMessageStreamViaResponses(
+          dto,
+          account,
+          false,
+          abortSignal
+        )
         this.recordEndpointSuccess(dto.model, "responses", account)
         return
       }
@@ -2134,7 +2189,8 @@ export class OpenaiCompatService implements OnModuleInit {
   private async *sendClaudeMessageStreamViaChatCompletions(
     dto: CreateMessageDto,
     account: OpenaiCompatAccount = this.nextAccount(dto.model),
-    suppressCooldownForResponsesFallback: boolean = false
+    suppressCooldownForResponsesFallback: boolean = false,
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
     const requestStartedAt = Date.now()
     const request = this.translateRequest(dto, true)
@@ -2164,9 +2220,18 @@ export class OpenaiCompatService implements OnModuleInit {
         url,
         fetchOptions,
         responseHeadersTimeoutMs,
-        `OpenAI-compatible stream timed out waiting for upstream response headers after ${responseHeadersTimeoutMs}ms`
+        `OpenAI-compatible stream timed out waiting for upstream response headers after ${responseHeadersTimeoutMs}ms`,
+        abortSignal
       )
     } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "OpenAI-compatible Chat Completions stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
       throw this.buildTransientFailureError(
         account,
         504,
@@ -2244,7 +2309,8 @@ export class OpenaiCompatService implements OnModuleInit {
         const readResult = await this.readStreamChunkWithTimeout(
           reader,
           timeoutMs,
-          timeoutMessage
+          timeoutMessage,
+          abortSignal
         )
 
         const { done, value } = readResult
@@ -2287,6 +2353,14 @@ export class OpenaiCompatService implements OnModuleInit {
         durationMs: Math.max(0, Date.now() - requestStartedAt),
       })
     } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "OpenAI-compatible Chat Completions stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
       if (
         error instanceof BackendApiError ||
         error instanceof BackendAccountPoolUnavailableError
@@ -2810,7 +2884,8 @@ export class OpenaiCompatService implements OnModuleInit {
   private async *sendClaudeMessageStreamViaResponses(
     dto: CreateMessageDto,
     account: OpenaiCompatAccount = this.nextAccount(dto.model),
-    suppressCooldownForChatFallback: boolean = false
+    suppressCooldownForChatFallback: boolean = false,
+    abortSignal?: AbortSignal
   ): AsyncGenerator<string, void, unknown> {
     const requestStartedAt = Date.now()
     const modelName = dto.model
@@ -2848,9 +2923,18 @@ export class OpenaiCompatService implements OnModuleInit {
         url,
         fetchOptions,
         responseHeadersTimeoutMs,
-        `OpenAI-compatible Responses stream timed out waiting for upstream response headers after ${responseHeadersTimeoutMs}ms`
+        `OpenAI-compatible Responses stream timed out waiting for upstream response headers after ${responseHeadersTimeoutMs}ms`,
+        abortSignal
       )
     } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "OpenAI-compatible Responses stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
       throw this.buildTransientFailureError(
         account,
         504,
@@ -2925,7 +3009,8 @@ export class OpenaiCompatService implements OnModuleInit {
         const readResult = await this.readStreamChunkWithTimeout(
           reader,
           timeoutMs,
-          timeoutMessage
+          timeoutMessage,
+          abortSignal
         )
         const { done, value } = readResult
         if (done) break
@@ -2993,6 +3078,14 @@ export class OpenaiCompatService implements OnModuleInit {
         durationMs: Math.max(0, Date.now() - requestStartedAt),
       })
     } catch (error) {
+      const abortedError = toUpstreamRequestAbortedError(
+        error,
+        abortSignal,
+        "OpenAI-compatible Responses stream aborted"
+      )
+      if (abortedError) {
+        throw abortedError
+      }
       if (
         error instanceof BackendApiError ||
         error instanceof BackendAccountPoolUnavailableError

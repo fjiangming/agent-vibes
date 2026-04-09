@@ -7,37 +7,39 @@ import { ensureDir, getDefaultDataDir } from "../utils/platform"
  * Manages the extension's configuration and data directory (~/.agent-vibes/).
  */
 export class ConfigManager {
-  private _dataDir: string
-
   constructor() {
-    const config = vscode.workspace.getConfiguration("agentVibes")
-    const customDir = config.get<string>("dataDir")
-    this._dataDir = customDir || getDefaultDataDir()
     this.ensureDirectories()
   }
 
+  private getConfiguredDataDir(): string {
+    const customDir =
+      vscode.workspace.getConfiguration("agentVibes").get<string>("dataDir") ??
+      ""
+    return customDir.trim() || getDefaultDataDir()
+  }
+
   get dataDir(): string {
-    return this._dataDir
+    return this.getConfiguredDataDir()
   }
 
   get certsDir(): string {
-    return path.join(this._dataDir, "certs")
+    return path.join(this.dataDir, "certs")
   }
 
   get accountsDir(): string {
-    return path.join(this._dataDir, "data")
+    return path.join(this.dataDir, "data")
   }
 
   get runtimeDir(): string {
-    return path.join(this._dataDir, "runtime")
+    return path.join(this.dataDir, "runtime")
   }
 
   get logsDir(): string {
-    return path.join(this._dataDir, "logs")
+    return path.join(this.dataDir, "logs")
   }
 
   get configFilePath(): string {
-    return path.join(this._dataDir, "config.json")
+    return path.join(this.dataDir, "config.json")
   }
 
   get port(): number {
@@ -272,8 +274,8 @@ export class ConfigManager {
     fs.writeFileSync(this.configFilePath, JSON.stringify(parsed, null, 2))
   }
 
-  private ensureDirectories(): void {
-    ensureDir(this._dataDir)
+  ensureDirectories(): void {
+    ensureDir(this.dataDir)
     ensureDir(this.certsDir)
     ensureDir(this.accountsDir)
     ensureDir(this.runtimeDir)

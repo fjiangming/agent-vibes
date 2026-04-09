@@ -1936,6 +1936,17 @@ export class ChatSessionManager implements OnModuleInit, OnModuleDestroy {
     return newId
   }
 
+  getCurrentStreamId(conversationId: string): string | undefined {
+    return this.getSession(conversationId)?.currentStreamId
+  }
+
+  isCurrentStream(conversationId: string, streamId: string): boolean {
+    if (!streamId) return false
+    const session = this.getSession(conversationId)
+    if (!session) return false
+    return session.currentStreamId === streamId
+  }
+
   /**
    * Rebind pending tool calls to the current stream ID.
    * This is used when a stream reconnects (e.g. resumeAction) and the tool results

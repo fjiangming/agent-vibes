@@ -11,6 +11,7 @@ import { startOAuthFlow } from "../services/oauth-service"
 import { startCodexOAuthFlow } from "../services/codex-oauth-service"
 import { CMD, CURSOR_DOMAINS } from "../constants"
 import { logger } from "../utils/logger"
+import { detectCurrentCursorVersion } from "../utils/cursor-version"
 
 type AccountChannel = "antigravity" | "claude-api" | "codex" | "openai-compat"
 
@@ -42,6 +43,12 @@ type DashboardOverviewPayload = {
   steps: DashboardOverviewStep[]
 }
 
+type DashboardVersionPayload = {
+  extensionVersion: string
+  currentCursorVersion: string
+  compatibleCursorVersion: string
+}
+
 /**
  * Webview Panel for the Agent Vibes Dashboard.
  * Singleton — opening an existing panel brings it to focus.
@@ -52,12 +59,16 @@ export class DashboardPanel {
 
   private readonly panel: vscode.WebviewPanel
   private readonly extensionUri: vscode.Uri
+  private readonly versionInfo: DashboardVersionPayload
   private disposables: vscode.Disposable[] = []
   private readonly handleBridgeStateChanged = () => {
     if (this.panel.visible) {
       this.sendAllData()
     }
   }
+
+  private accountFileWatchers: vscode.FileSystemWatcher[] = []
+  private accountFileDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -68,6 +79,7 @@ export class DashboardPanel {
   ) {
     this.panel = panel
     this.extensionUri = extensionUri
+    this.versionInfo = this.getVersionInfo()
 
     // Set initial HTML
     this.panel.webview.html = this.getHtml()
@@ -104,6 +116,9 @@ export class DashboardPanel {
     )
 
     this.bridge.on("stateChanged", this.handleBridgeStateChanged)
+
+    // Watch account config files for external changes
+    this.watchAccountFiles()
   }
 
   /**
@@ -590,6 +605,17 @@ export class DashboardPanel {
         vscode.ConfigurationTarget.Global
       )
 
+      if (
+        key === "dataDir" ||
+        key === "antigravityAccountsPath" ||
+        key === "codexAccountsPath" ||
+        key === "openaiCompatAccountsPath" ||
+        key === "claudeApiAccountsPath"
+      ) {
+        this.config.ensureDirectories()
+        this.watchAccountFiles()
+      }
+
       if (key !== "language") {
         vscode.window.showInformationMessage(
           str
@@ -707,6 +733,7 @@ export class DashboardPanel {
       totalAccounts,
       defaultProxyUrl: this.getDefaultProxyUrl(),
       setup: this.getOverviewPayload(channelAccountsData),
+      versions: this.versionInfo,
     }
 
     // Status
@@ -1752,8 +1779,115 @@ export class DashboardPanel {
     return html
   }
 
+  private getVersionInfo(): DashboardVersionPayload {
+    const packageJsonPath = path.join(this.extensionUri.fsPath, "package.json")
+
+    try {
+      const raw = fs.readFileSync(packageJsonPath, "utf-8")
+      const parsed = JSON.parse(raw) as {
+        version?: unknown
+        agentVibes?: {
+          cursorVersion?: unknown
+        }
+      }
+
+      const extensionVersion =
+        typeof parsed.version === "string" && parsed.version.trim().length > 0
+          ? parsed.version.trim()
+          : "unknown"
+      const compatibleCursorVersion =
+        typeof parsed.agentVibes?.cursorVersion === "string" &&
+        parsed.agentVibes.cursorVersion.trim().length > 0
+          ? parsed.agentVibes.cursorVersion.trim()
+          : "unknown"
+      const currentCursorVersion =
+        detectCurrentCursorVersion() || compatibleCursorVersion
+
+      return {
+        extensionVersion,
+        currentCursorVersion,
+        compatibleCursorVersion,
+      }
+    } catch (error) {
+      logger.warn(
+        `Failed to read extension version metadata: ${error instanceof Error ? error.message : String(error)}`
+      )
+      return {
+        extensionVersion: "unknown",
+        currentCursorVersion: "unknown",
+        compatibleCursorVersion: "unknown",
+      }
+    }
+  }
+
+  /**
+   * Watch all account config files for external changes and auto-refresh the panel.
+   */
+  private watchAccountFiles(): void {
+    for (const watcher of this.accountFileWatchers) {
+      watcher.dispose()
+    }
+    this.accountFileWatchers = []
+
+    const channels: AccountChannel[] = [
+      "antigravity",
+      "codex",
+      "openai-compat",
+      "claude-api",
+    ]
+    const watchedFiles = new Set<string>()
+
+    const queueRefresh = () => {
+      if (this.accountFileDebounceTimer) {
+        clearTimeout(this.accountFileDebounceTimer)
+      }
+      this.accountFileDebounceTimer = setTimeout(() => {
+        this.accountFileDebounceTimer = null
+        if (this.panel.visible) {
+          this.sendAllData()
+        }
+      }, 300)
+    }
+
+    for (const channel of channels) {
+      const filePath = this.getChannelPath(channel)
+      if (!filePath) continue
+
+      const normalizedFilePath = path.resolve(filePath)
+      if (watchedFiles.has(normalizedFilePath)) continue
+      watchedFiles.add(normalizedFilePath)
+
+      try {
+        const watcher = vscode.workspace.createFileSystemWatcher(
+          new vscode.RelativePattern(
+            path.dirname(normalizedFilePath),
+            path.basename(normalizedFilePath)
+          )
+        )
+
+        watcher.onDidChange(queueRefresh, null, this.disposables)
+        watcher.onDidCreate(queueRefresh, null, this.disposables)
+        watcher.onDidDelete(queueRefresh, null, this.disposables)
+
+        this.accountFileWatchers.push(watcher)
+      } catch (err) {
+        logger.debug(
+          `Failed to watch ${normalizedFilePath}: ${err instanceof Error ? err.message : String(err)}`
+        )
+      }
+    }
+  }
+
   dispose(): void {
     this.bridge.off("stateChanged", this.handleBridgeStateChanged)
+    for (const watcher of this.accountFileWatchers) {
+      watcher.dispose()
+    }
+    this.accountFileWatchers = []
+    if (this.accountFileDebounceTimer) {
+      clearTimeout(this.accountFileDebounceTimer)
+      this.accountFileDebounceTimer = null
+    }
     DashboardPanel.currentPanel = undefined
     this.panel.dispose()
     while (this.disposables.length) {

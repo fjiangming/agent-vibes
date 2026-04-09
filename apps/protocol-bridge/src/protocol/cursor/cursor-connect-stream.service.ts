@@ -40,9 +40,11 @@ import {
   ModelRouteResult,
   ModelRouterService,
 } from "../../llm/model-router.service"
+import { UpstreamRequestAbortedError } from "../../llm/shared/abort-signal"
 import { backendRequiresCompleteToolBatchBeforeContinuation } from "../../llm/tool-continuation-policy"
 import { CreateMessageDto } from "../anthropic/dto/create-message.dto"
 import { generateTraceId } from "./agent-helpers"
+import { BackendStreamAbortRegistry } from "./backend-stream-abort-registry"
 import { normalizeBugfixResultItems as normalizeBugfixResultItemsFromContract } from "./bugfix-result-normalizer"
 import {
   ChatSession,
@@ -69,6 +71,7 @@ import {
 import { KvStorageService } from "./kv-storage.service"
 import {
   buildMcpDispatchInput,
+  normalizeMcpToolIdentifier,
   resolveMcpCallFields as resolveMcpCallFieldsFromContract,
   resolveMcpToolDefinition,
 } from "./mcp-call-contract"
@@ -222,6 +225,7 @@ type InlineWebToolFamily = "web_search" | "web_fetch"
 
 type DeferredToolFamily =
   | InlineWebToolFamily
+  | "get_mcp_tools"
   | "read_url_content"
   | "view_content_chunk"
   | "fetch"
@@ -301,6 +305,7 @@ type ToolDispatchOutcome = "waiting_for_result" | "completed_inline"
 interface ToolInvocationDispatchParams {
   conversationId: string
   session: ChatSession
+  streamId?: string
   toolCall: ActiveToolCall
   accumulatedText: string
   checkpointModel: string
@@ -309,6 +314,16 @@ interface ToolInvocationDispatchParams {
 
 interface HandleToolResultOptions {
   continueGeneration?: boolean
+  streamId?: string
+}
+
+interface BackendStreamOptions {
+  buildDtoForRoute?: (route: ModelRouteResult) => CreateMessageDto
+  abortSignal?: AbortSignal
+  streamAbortBinding?: {
+    conversationId: string
+    streamId: string
+  }
 }
 
 interface ExecDispatchTarget {
@@ -420,6 +435,7 @@ interface JsonSchemaProperty {
 @Injectable()
 export class CursorConnectStreamService {
   private readonly logger = new Logger(CursorConnectStreamService.name)
+  private readonly backendStreamAbortRegistry = new BackendStreamAbortRegistry()
   private lastHeartbeatLog = 0
   private readonly HEARTBEAT_LOG_INTERVAL = 60000 // Log heartbeat once per minute
   private readonly KEEPALIVE_INTERVAL = 10000 // 每10秒发送心跳
@@ -800,9 +816,7 @@ export class CursorConnectStreamService {
     dto: CreateMessageDto,
     route: ModelRouteResult,
     attemptedBackends: Set<string> = new Set(),
-    options?: {
-      buildDtoForRoute?: (route: ModelRouteResult) => CreateMessageDto
-    }
+    options?: BackendStreamOptions
   ): AsyncGenerator<string, void, unknown> {
     attemptedBackends.add(route.backend)
     const routedDto = options?.buildDtoForRoute
@@ -841,7 +855,9 @@ export class CursorConnectStreamService {
           `Routing to Claude API backend for model: ${route.model}`
         )
         for await (const event of this.claudeApiService.sendClaudeMessageStream(
-          routedDto
+          routedDto,
+          {},
+          options?.abortSignal
         )) {
           yield* handleEvent(event)
         }
@@ -856,7 +872,8 @@ export class CursorConnectStreamService {
           `Routing to OpenAI-compat backend for model: ${route.model}`
         )
         for await (const event of this.openaiCompatService.sendClaudeMessageStream(
-          routedDto
+          routedDto,
+          options?.abortSignal
         )) {
           yield* handleEvent(event)
         }
@@ -869,7 +886,8 @@ export class CursorConnectStreamService {
       if (route.backend === "codex") {
         this.logger.log(`Routing to Codex backend for model: ${route.model}`)
         for await (const event of this.codexService.sendClaudeMessageStream(
-          routedDto
+          routedDto,
+          options?.abortSignal
         )) {
           yield* handleEvent(event)
         }
@@ -881,7 +899,8 @@ export class CursorConnectStreamService {
 
       this.logger.log(`Routing to Google backend for model: ${route.model}`)
       for await (const event of this.googleService.sendClaudeMessageStream(
-        routedDto
+        routedDto,
+        options?.abortSignal
       )) {
         yield* handleEvent(event)
       }
@@ -889,6 +908,9 @@ export class CursorConnectStreamService {
         for (const b of buffer) yield b
       }
     } catch (error) {
+      if (error instanceof UpstreamRequestAbortedError) {
+        throw error
+      }
       const fallback = this.modelRouter.getFallbackRoute(
         dto.model,
         route.backend
@@ -926,14 +948,26 @@ export class CursorConnectStreamService {
    * Get the appropriate message stream based on model
    * Uses ModelRouterService for centralized routing logic
    */
-  private getBackendStream(
+  private async *getBackendStream(
     dto: CreateMessageDto,
-    options?: {
-      buildDtoForRoute?: (route: ModelRouteResult) => CreateMessageDto
-    }
+    options?: BackendStreamOptions
   ): AsyncGenerator<string, void, unknown> {
     const route = this.modelRouter.resolveModel(dto.model)
-    return this.executeBackendStreamWithFallback(dto, route, new Set(), options)
+    const registration = options?.streamAbortBinding
+      ? this.backendStreamAbortRegistry.register(
+          options.streamAbortBinding.conversationId,
+          options.streamAbortBinding.streamId
+        )
+      : null
+
+    try {
+      yield* this.executeBackendStreamWithFallback(dto, route, new Set(), {
+        ...options,
+        abortSignal: registration?.controller.signal ?? options?.abortSignal,
+      })
+    } finally {
+      registration?.release()
+    }
   }
 
   private buildPromptContextFromSession(session: ChatSession): PromptContext {
@@ -1314,6 +1348,66 @@ export class CursorConnectStreamService {
       `pendingToolCalls=${session.pendingToolCalls.size}, ` +
       `pendingInteractionQueries=${session.pendingInteractionQueries.size}`
     )
+  }
+
+  private summarizeStreamId(streamId: string | undefined): string {
+    return streamId ? streamId.substring(0, 8) : "(none)"
+  }
+
+  private abortBackendRequestsForSupersededStreams(
+    conversationId: string,
+    streamId: string,
+    context: string
+  ): void {
+    const abortedCount = this.backendStreamAbortRegistry.abortOtherStreams(
+      conversationId,
+      streamId,
+      `Superseded by stream ${this.summarizeStreamId(streamId)} during ${context}`
+    )
+    if (abortedCount > 0) {
+      this.logger.log(
+        `Aborted ${abortedCount} backend request(s) for superseded stream(s) on ${conversationId} during ${context}`
+      )
+    }
+  }
+
+  private abortBackendRequestsForStream(
+    conversationId: string,
+    streamId: string,
+    context: string
+  ): void {
+    const abortedCount = this.backendStreamAbortRegistry.abortStream(
+      conversationId,
+      streamId,
+      `Stream ${this.summarizeStreamId(streamId)} aborted during ${context}`
+    )
+    if (abortedCount > 0) {
+      this.logger.log(
+        `Aborted ${abortedCount} backend request(s) for stream ${this.summarizeStreamId(streamId)} on ${conversationId} during ${context}`
+      )
+    }
+  }
+
+  private shouldAbortSupersededStream(
+    conversationId: string,
+    streamId: string | undefined,
+    context: string
+  ): boolean {
+    if (!streamId) {
+      return false
+    }
+
+    const currentStreamId =
+      this.sessionManager.getCurrentStreamId(conversationId)
+    if (!currentStreamId || currentStreamId === streamId) {
+      return false
+    }
+
+    this.logger.warn(
+      `Stopping superseded stream for ${conversationId} during ${context}: ` +
+        `${this.summarizeStreamId(streamId)} != ${this.summarizeStreamId(currentStreamId)}`
+    )
+    return true
   }
 
   private *maybeEmitCloudCodeProtocolRecoveryQuery(
@@ -3226,6 +3320,8 @@ ${raw}
           return "exa_search"
         case "CLIENT_SIDE_TOOL_V2_EXA_FETCH":
           return "exa_fetch"
+        case "CLIENT_SIDE_TOOL_V2_GET_MCP_TOOLS":
+          return "get_mcp_tools"
         case "CLIENT_SIDE_TOOL_V2_SETUP_VM_ENVIRONMENT":
           return "setup_vm_environment"
         case "CLIENT_SIDE_TOOL_V2_TODO_READ":
@@ -3293,6 +3389,9 @@ ${raw}
     }
     if (snake.includes("exa_fetch") || compact.includes("exafetch")) {
       return "exa_fetch"
+    }
+    if (snake.includes("get_mcp_tools") || compact.includes("getmcptools")) {
+      return "get_mcp_tools"
     }
     if (
       snake === "fetch" ||
@@ -6404,6 +6503,111 @@ ${raw}
     }
   }
 
+  private executeInlineGetMcpTools(
+    conversationId: string,
+    input: Record<string, unknown>
+  ): {
+    content: string
+    state: { status: ToolResultStatus; message?: string }
+  } {
+    const session = this.sessionManager.getSession(conversationId)
+    if (!session) {
+      return {
+        content: "[get_mcp_tools error] Session not found",
+        state: { status: "error", message: "session not found" },
+      }
+    }
+
+    const serverFilter =
+      this.pickFirstString(input, [
+        "server",
+        "serverName",
+        "server_name",
+        "providerIdentifier",
+        "provider_identifier",
+      ]) || ""
+    const toolNameFilter =
+      this.pickFirstString(input, ["tool_name", "toolName", "name"]) || ""
+    const pattern = this.pickFirstString(input, ["pattern", "query"]) || ""
+
+    input.server = serverFilter
+    input.tool_name = toolNameFilter
+    input.pattern = pattern
+
+    const normalizedServerFilter = normalizeMcpToolIdentifier(serverFilter)
+    const normalizedToolNameFilter = normalizeMcpToolIdentifier(toolNameFilter)
+    const normalizedPattern = normalizeMcpToolIdentifier(pattern)
+    const lowerPattern = pattern.toLowerCase()
+    const defs = session.mcpToolDefs || []
+
+    const filteredDefs = defs.filter((def) => {
+      const normalizedProvider = normalizeMcpToolIdentifier(
+        def.providerIdentifier || ""
+      )
+      const normalizedToolName = normalizeMcpToolIdentifier(def.toolName || "")
+      const normalizedName = normalizeMcpToolIdentifier(def.name || "")
+      const matchesServer =
+        !normalizedServerFilter ||
+        normalizedProvider === normalizedServerFilter ||
+        normalizedProvider.includes(normalizedServerFilter) ||
+        normalizedServerFilter.includes(normalizedProvider)
+      const matchesToolName =
+        !normalizedToolNameFilter ||
+        normalizedToolName === normalizedToolNameFilter ||
+        normalizedToolName.includes(normalizedToolNameFilter) ||
+        normalizedName === normalizedToolNameFilter
+
+      if (!matchesServer || !matchesToolName) {
+        return false
+      }
+
+      if (!pattern) {
+        return true
+      }
+
+      const haystacks = [
+        def.name || "",
+        def.toolName || "",
+        def.providerIdentifier || "",
+        def.description || "",
+      ]
+      return haystacks.some((value) => {
+        const lowered = value.toLowerCase()
+        return (
+          lowered.includes(lowerPattern) ||
+          normalizeMcpToolIdentifier(value).includes(normalizedPattern)
+        )
+      })
+    })
+
+    const payload: Record<string, unknown> = {
+      total: filteredDefs.length,
+      tools: filteredDefs.map((def) => ({
+        server: def.providerIdentifier,
+        tool_name: def.toolName,
+        name: def.name,
+        description: def.description,
+        input_schema: def.inputSchema || {
+          type: "object",
+          properties: {},
+        },
+      })),
+    }
+
+    if (serverFilter || toolNameFilter || pattern) {
+      payload.filters = {
+        ...(serverFilter ? { server: serverFilter } : {}),
+        ...(toolNameFilter ? { tool_name: toolNameFilter } : {}),
+        ...(pattern ? { pattern } : {}),
+      }
+    }
+
+    return {
+      content: JSON.stringify(payload, null, 2),
+      state: { status: "success" },
+    }
+  }
+
   private executeInlineReflect(input: Record<string, unknown>): {
     content: string
     state: { status: ToolResultStatus; message?: string }
@@ -6542,6 +6746,11 @@ ${raw}
     }
     if (family === "exa_fetch") {
       return this.executeInlineExaFetch(input)
+    }
+    if (family === "get_mcp_tools") {
+      return Promise.resolve(
+        this.executeInlineGetMcpTools(conversationId, input)
+      )
     }
     if (family === "todo_read") {
       return this.executeInlineTodoRead(conversationId, input)
@@ -7481,11 +7690,22 @@ ${raw}
     const {
       conversationId,
       session,
+      streamId,
       toolCall,
       accumulatedText,
       checkpointModel,
       workspaceRootPath,
     } = params
+
+    if (
+      this.shouldAbortSupersededStream(
+        conversationId,
+        streamId,
+        `tool dispatch ${toolCall.id}`
+      )
+    ) {
+      return "completed_inline"
+    }
 
     const rawInput = this.parseToolInputJson(toolCall.inputJson)
     const canonicalInvocation = this.canonicalizeToolInvocation(
@@ -7745,6 +7965,7 @@ ${raw}
     inputMessages: AsyncIterable<Buffer>
   ): AsyncGenerator<Buffer> {
     let conversationId: string | undefined
+    let streamId: string | undefined
     let isFirstMessage = true
 
     try {
@@ -7759,6 +7980,17 @@ ${raw}
           continue
         }
 
+        if (
+          conversationId &&
+          this.shouldAbortSupersededStream(
+            conversationId,
+            streamId,
+            "incoming client message"
+          )
+        ) {
+          return
+        }
+
         // Handle Agent control messages (heartbeats, stream close)
         if (parsed.isAgentControlMessage) {
           // Resume/control requests may arrive first on a retried stream.
@@ -7766,8 +7998,19 @@ ${raw}
           if (!conversationId && parsed.conversationId) {
             conversationId = parsed.conversationId
             this.sessionManager.getOrCreateSession(conversationId, parsed)
+            streamId = this.sessionManager.rotateStreamId(conversationId)
+            this.abortBackendRequestsForSupersededStreams(
+              conversationId,
+              streamId,
+              "control-first bidi stream attached"
+            )
+            const reboundCount =
+              this.sessionManager.rebindPendingToolCallsToCurrentStream(
+                conversationId
+              )
             this.logger.log(
-              `BiDi control stream attached to conversation: ${conversationId}`
+              `BiDi control stream attached to conversation: ${conversationId} ` +
+                `(streamId=${this.summarizeStreamId(streamId)}, reboundPending=${reboundCount})`
             )
             isFirstMessage = false
           }
@@ -7909,7 +8152,7 @@ ${raw}
             `Received tool result: ${parsed.toolResults[0]!.toolCallId || "(will match by order)"}`
           )
           try {
-            yield* this.handleToolResult(conversationId, parsed)
+            yield* this.handleToolResult(conversationId, parsed, { streamId })
           } catch (error) {
             const sessionAfterToolError =
               this.sessionManager.getSession(conversationId)
@@ -7989,7 +8232,12 @@ ${raw}
             )
 
             // Rotate the stream ID so we can detect orphaned tool calls from closed streams
-            this.sessionManager.rotateStreamId(conversationId)
+            streamId = this.sessionManager.rotateStreamId(conversationId)
+            this.abortBackendRequestsForSupersededStreams(
+              conversationId,
+              streamId,
+              "new bidi stream attached"
+            )
 
             // Agent mode: send initial KV messages only for fresh user-message turns.
             // resume_action carries no new prompt and should not emit synthetic user_query.
@@ -8134,7 +8382,7 @@ ${raw}
           }
 
           // Handle run turn with the established conversationId.
-          yield* this.handleChatMessage(conversationId!, parsed)
+          yield* this.handleChatMessage(conversationId!, parsed, streamId)
 
           // After handleChatMessage, check if there are pending tool calls
           // If there are, continue the loop to wait for tool results
@@ -8169,6 +8417,14 @@ ${raw}
       const errorMessage =
         error instanceof Error ? error.message : String(error)
       throw new Error(`BiDi stream failed: ${errorMessage}`)
+    } finally {
+      if (conversationId && streamId) {
+        this.abortBackendRequestsForStream(
+          conversationId,
+          streamId,
+          "bidi stream closed"
+        )
+      }
     }
   }
 
@@ -8183,7 +8439,8 @@ ${raw}
    */
   private async *handleChatMessage(
     conversationId: string,
-    parsed: ParsedCursorRequest
+    parsed: ParsedCursorRequest,
+    streamId?: string
   ): AsyncGenerator<Buffer> {
     // Get or create session with the provided conversationId
     let session = this.sessionManager.getOrCreateSession(conversationId, parsed)
@@ -8395,6 +8652,13 @@ ${raw}
     try {
       const stream = this.getBackendStream(dto, {
         buildDtoForRoute: buildChatDtoForRoute,
+        streamAbortBinding:
+          streamId && conversationId
+            ? {
+                conversationId,
+                streamId,
+              }
+            : undefined,
       })
 
       // Generate base modelCallId for this conversation turn
@@ -8423,6 +8687,16 @@ ${raw}
       yield this.grpcService.createHeartbeatResponse()
 
       for await (const item of this.streamWithHeartbeat(stream)) {
+        if (
+          this.shouldAbortSupersededStream(
+            conversationId,
+            streamId,
+            "initial backend stream"
+          )
+        ) {
+          return
+        }
+
         // 心跳：保持 Cursor 连接活跃
         if (item.type === "heartbeat") {
           yield this.grpcService.createHeartbeatResponse()
@@ -8590,6 +8864,7 @@ ${raw}
               yield* this.registerAndDispatchToolInvocation({
                 conversationId: session.conversationId,
                 session,
+                streamId,
                 toolCall: currentToolCall,
                 accumulatedText,
                 checkpointModel: parsed.model,
@@ -8601,6 +8876,16 @@ ${raw}
             return
           }
         } else if (event.type === "message_stop") {
+          if (
+            this.shouldAbortSupersededStream(
+              conversationId,
+              streamId,
+              "initial backend message_stop"
+            )
+          ) {
+            return
+          }
+
           // No tool calls - message complete
           // Agent mode: text was already sent in real-time, just send turn_ended signal
           // CRITICAL: Agent mode requires turn_ended signal to complete
@@ -8672,6 +8957,23 @@ ${raw}
         }
       }
     } catch (error) {
+      if (error instanceof UpstreamRequestAbortedError) {
+        this.logger.log(
+          `Initial backend stream aborted for ${conversationId}: ${error.message}`
+        )
+        return
+      }
+
+      if (
+        this.shouldAbortSupersededStream(
+          conversationId,
+          streamId,
+          "initial backend error"
+        )
+      ) {
+        return
+      }
+
       const backendLabel = route.backend
       const errorMessage =
         error instanceof Error ? error.message : String(error)
@@ -8887,6 +9189,17 @@ ${raw}
     let syntheticExitCode: number | undefined
     const activePendingToolCall = session.pendingToolCalls.get(toolCallId)
 
+    if (
+      activePendingToolCall &&
+      this.shouldAbortSupersededStream(
+        conversationId,
+        activePendingToolCall.streamId,
+        `shell stream ${toolCallId}`
+      )
+    ) {
+      return
+    }
+
     // Initialize shell stream tracking if not already done
     if (!this.sessionManager.getShellOutput(conversationId, toolCallId)) {
       this.sessionManager.initShellStream(conversationId, toolCallId)
@@ -9067,7 +9380,9 @@ ${raw}
         }
       )
 
-      // Add tool result to message history and continue AI
+      // Add tool result to message history before any supersession return.
+      // Once the pending tool call is consumed, resumed streams need the
+      // persisted tool_result to reconstruct state safely.
       this.appendToolResultWithIntegrity(
         session,
         toolCallId,
@@ -9075,6 +9390,16 @@ ${raw}
         pendingToolCall.toolInput,
         adaptedToolResultContent
       )
+
+      if (
+        this.shouldAbortSupersededStream(
+          conversationId,
+          pendingToolCall.streamId,
+          `shell tool continuation ${toolCallId}`
+        )
+      ) {
+        return
+      }
 
       // Continue AI generation
       const route = this.modelRouter.resolveModel(session.model)
@@ -9172,10 +9497,26 @@ ${raw}
       try {
         const stream = this.getBackendStream(dto, {
           buildDtoForRoute: buildShellContinuationDtoForRoute,
+          streamAbortBinding: pendingToolCall.streamId
+            ? {
+                conversationId,
+                streamId: pendingToolCall.streamId,
+              }
+            : undefined,
         })
         let finalUsage: ContextUsageSnapshot | undefined
 
         for await (const sseEvent of stream) {
+          if (
+            this.shouldAbortSupersededStream(
+              conversationId,
+              pendingToolCall.streamId,
+              "shell continuation stream"
+            )
+          ) {
+            return
+          }
+
           const event = this.parseSseEvent(sseEvent)
           if (!event) continue
 
@@ -9233,6 +9574,7 @@ ${raw}
                 yield* this.registerAndDispatchToolInvocation({
                   conversationId,
                   session,
+                  streamId: pendingToolCall.streamId,
                   toolCall: currentToolCall,
                   accumulatedText,
                   checkpointModel: session.model,
@@ -9246,6 +9588,16 @@ ${raw}
               return
             }
           } else if (event.type === "message_stop") {
+            if (
+              this.shouldAbortSupersededStream(
+                conversationId,
+                pendingToolCall.streamId,
+                "shell continuation message_stop"
+              )
+            ) {
+              return
+            }
+
             // AI finished without more tool calls
             let assistantRecordId: string | undefined
             if (accumulatedText) {
@@ -9293,6 +9645,23 @@ ${raw}
           }
         }
       } catch (error) {
+        if (error instanceof UpstreamRequestAbortedError) {
+          this.logger.log(
+            `Shell continuation aborted for ${conversationId}: ${error.message}`
+          )
+          return
+        }
+
+        if (
+          this.shouldAbortSupersededStream(
+            conversationId,
+            pendingToolCall.streamId,
+            "shell continuation error"
+          )
+        ) {
+          return
+        }
+
         yield* this.emitPostToolContinuationError(
           conversationId,
           backendLabel,
@@ -9329,6 +9698,16 @@ ${raw}
     }
 
     const toolResult = parsed.toolResults[0]!
+
+    if (
+      this.shouldAbortSupersededStream(
+        conversationId,
+        options.streamId,
+        `tool result ${toolResult.toolCallId || "(pending)"}`
+      )
+    ) {
+      return
+    }
 
     const execNumericId = this.normalizePositiveInteger(toolResult.toolType)
     let toolCallId = toolResult.toolCallId
@@ -9991,6 +10370,10 @@ ${raw}
       toolResultContent,
       toolResultState
     )
+    // Persist tool_result before any supersession return. At this point the
+    // pending tool call has already been consumed, so dropping the history
+    // write would strand resumed streams without either pending state or a
+    // persisted tool_result to continue from.
     this.appendToolResultWithIntegrity(
       session,
       toolCallId,
@@ -10003,6 +10386,16 @@ ${raw}
       this.logger.log(
         `Tool result finalized without AI continuation: ${toolCallId}`
       )
+      return
+    }
+
+    if (
+      this.shouldAbortSupersededStream(
+        conversationId,
+        options.streamId,
+        `tool continuation dispatch ${toolCallId}`
+      )
+    ) {
       return
     }
 
@@ -10095,6 +10488,12 @@ ${raw}
       // Stream the continuation - may include more tool calls (routed based on model)
       const stream = this.getBackendStream(dto, {
         buildDtoForRoute: buildContinuationDtoForRoute,
+        streamAbortBinding: options.streamId
+          ? {
+              conversationId,
+              streamId: options.streamId,
+            }
+          : undefined,
       })
 
       // Generate base modelCallId for continuation tool calls
@@ -10123,6 +10522,16 @@ ${raw}
       yield this.grpcService.createHeartbeatResponse()
 
       for await (const item of this.streamWithHeartbeat(stream)) {
+        if (
+          this.shouldAbortSupersededStream(
+            conversationId,
+            options.streamId,
+            "tool continuation stream"
+          )
+        ) {
+          return
+        }
+
         // 心跳：保持 Cursor 连接活跃
         if (item.type === "heartbeat") {
           yield this.grpcService.createHeartbeatResponse()
@@ -10274,6 +10683,7 @@ ${raw}
               yield* this.registerAndDispatchToolInvocation({
                 conversationId,
                 session,
+                streamId: options.streamId,
                 toolCall: currentToolCall,
                 accumulatedText,
                 checkpointModel: session.model,
@@ -10285,6 +10695,16 @@ ${raw}
             return
           }
         } else if (event.type === "message_stop") {
+          if (
+            this.shouldAbortSupersededStream(
+              conversationId,
+              options.streamId,
+              "tool continuation message_stop"
+            )
+          ) {
+            return
+          }
+
           // No tool calls - conversation complete
           // Agent mode: send turn_ended signal (text was already sent in real-time)
           this.logger.log(
@@ -10325,6 +10745,12 @@ ${raw}
         try {
           const retryStream = this.getBackendStream(dto, {
             buildDtoForRoute: buildContinuationDtoForRoute,
+            streamAbortBinding: options.streamId
+              ? {
+                  conversationId,
+                  streamId: options.streamId,
+                }
+              : undefined,
           })
           let retryAccumulatedText = ""
           let retryHasToolCall = false
@@ -10336,6 +10762,16 @@ ${raw}
           let retryThinkingStartTime = 0
 
           for await (const retryItem of this.streamWithHeartbeat(retryStream)) {
+            if (
+              this.shouldAbortSupersededStream(
+                conversationId,
+                options.streamId,
+                "tool continuation retry stream"
+              )
+            ) {
+              return
+            }
+
             if (retryItem.type === "heartbeat") {
               yield this.grpcService.createHeartbeatResponse()
               continue
@@ -10412,6 +10848,7 @@ ${raw}
                   yield* this.registerAndDispatchToolInvocation({
                     conversationId,
                     session,
+                    streamId: options.streamId,
                     toolCall: retryCurrentToolCall,
                     accumulatedText: retryAccumulatedText,
                     checkpointModel: session.model,
@@ -10425,6 +10862,16 @@ ${raw}
                 return
               }
             } else if (retryEvent.type === "message_stop") {
+              if (
+                this.shouldAbortSupersededStream(
+                  conversationId,
+                  options.streamId,
+                  "tool continuation retry message_stop"
+                )
+              ) {
+                return
+              }
+
               this.logger.log(
                 "[Retry] message_stop received, ending continuation"
               )
@@ -10459,12 +10906,27 @@ ${raw}
             return
           }
         } catch (retryError) {
+          if (retryError instanceof UpstreamRequestAbortedError) {
+            this.logger.log(
+              `Tool continuation retry aborted for ${conversationId}: ${retryError.message}`
+            )
+            return
+          }
           this.logger.warn(`[Empty Stream] Retry failed: ${String(retryError)}`)
         }
 
         // Both attempts returned empty — emit fallback text to maintain
         // protocol integrity. Without this, Cursor receives no assistant
         // output and opens a new chat window.
+        if (
+          this.shouldAbortSupersededStream(
+            conversationId,
+            options.streamId,
+            "tool continuation empty-stream fallback"
+          )
+        ) {
+          return
+        }
         this.logger.warn(
           `[Empty Stream] Both attempts returned empty for ${conversationId}; emitting fallback text response`
         )
@@ -10475,6 +10937,23 @@ ${raw}
         return
       }
     } catch (error) {
+      if (error instanceof UpstreamRequestAbortedError) {
+        this.logger.log(
+          `Tool continuation aborted for ${conversationId}: ${error.message}`
+        )
+        return
+      }
+
+      if (
+        this.shouldAbortSupersededStream(
+          conversationId,
+          options.streamId,
+          "tool continuation error"
+        )
+      ) {
+        return
+      }
+
       const repaired = this.repairMissingToolOutputProtocolState(
         conversationId,
         `tool continuation: ${conversationId}`,
