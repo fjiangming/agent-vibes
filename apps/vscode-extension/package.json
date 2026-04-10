@@ -9,13 +9,13 @@
   },
   "private": true,
   "license": "MIT",
-  "homepage": "https://github.com/funny-vibes/cursor-proxy#readme",
+  "homepage": "https://github.com/fjiangming/agent-vibes#readme",
   "bugs": {
-    "url": "https://github.com/funny-vibes/cursor-proxy/issues"
+    "url": "https://github.com/fjiangming/agent-vibes/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/funny-vibes/cursor-proxy.git"
+    "url": "https://github.com/fjiangming/agent-vibes.git"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -41,13 +41,13 @@
   },
   "badges": [
     {
-      "url": "https://github.com/funny-vibes/cursor-proxy/actions/workflows/ci.yml/badge.svg?branch=main",
-      "href": "https://github.com/funny-vibes/cursor-proxy/actions/workflows/ci.yml",
+      "url": "https://github.com/fjiangming/agent-vibes/actions/workflows/ci.yml/badge.svg?branch=main",
+      "href": "https://github.com/fjiangming/agent-vibes/actions/workflows/ci.yml",
       "description": "CI Status"
     },
     {
       "url": "https://img.shields.io/badge/License-MIT-blue.svg",
-      "href": "https://github.com/funny-vibes/cursor-proxy/blob/main/LICENSE",
+      "href": "https://github.com/fjiangming/agent-vibes/blob/main/LICENSE",
       "description": "MIT License"
     },
     {
@@ -58,9 +58,9 @@
   ],
   "preview": true,
   "markdown": "github",
-  "qna": "https://github.com/funny-vibes/cursor-proxy/discussions",
+  "qna": "https://github.com/fjiangming/agent-vibes/discussions",
   "sponsor": {
-    "url": "https://github.com/sponsors/funny-vibes"
+    "url": "https://github.com/sponsors/fjiangming"
   },
   "extensionKind": [
     "ui"

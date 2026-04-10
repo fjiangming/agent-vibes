@@ -87,7 +87,7 @@ Advanced:
   agent-vibes capture repair          Repair stale capture injection
   agent-vibes issues                  Collect diagnostics for bug reports
 
-Documentation: https://github.com/funny-vibes/agent-vibes
+Documentation: https://github.com/fjiangming/agent-vibes
 `)
   process.exit(0)
 }

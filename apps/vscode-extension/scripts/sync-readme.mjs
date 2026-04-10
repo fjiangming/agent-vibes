@@ -16,7 +16,7 @@ const extensionPkg = JSON.parse(fs.readFileSync(extensionPkgPath, "utf8"))
 const version = extensionPkg.version
 const cursorVersion = extensionPkg.agentVibes?.cursorVersion
 const tag = `v${version}`
-const releaseBase = `https://github.com/funny-vibes/agent-vibes/releases/download/${tag}`
+const releaseBase = `https://github.com/fjiangming/agent-vibes/releases/download/${tag}`
 
 if (!version) {
   throw new Error(`Version not found in ${extensionPkgPath}`)
@@ -87,13 +87,13 @@ function updateReadme(filePath) {
   content = collapseDuplicateCommands(content, version)
   content = replaceCompatibilityLine(
     content,
-    "One-click download + install from [GitHub Releases](https://github.com/funny-vibes/agent-vibes/releases):",
+    "One-click download + install from [GitHub Releases](https://github.com/fjiangming/agent-vibes/releases):",
     `Compatible Cursor version: \`${cursorVersion}\`.`,
     /Compatible Cursor version: `[^`]+`\.\n/g
   )
   content = replaceCompatibilityLine(
     content,
-    "从 [GitHub Releases](https://github.com/funny-vibes/agent-vibes/releases) 一键下载并安装：",
+    "从 [GitHub Releases](https://github.com/fjiangming/agent-vibes/releases) 一键下载并安装：",
     `兼容 Cursor 版本：\`${cursorVersion}\`。`,
     /兼容 Cursor 版本：`[^`]+`。\n/g
   )

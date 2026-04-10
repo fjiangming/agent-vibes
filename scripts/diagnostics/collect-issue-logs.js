@@ -588,7 +588,7 @@ function main() {
 
   console.log(
     "\n💡 Paste the report into your GitHub Issue:\n" +
-      "   https://github.com/funny-vibes/cursor-proxy/issues/new?template=bug_report.md\n"
+      "   https://github.com/fjiangming/agent-vibes/issues/new?template=bug_report.md\n"
   )
 }
 

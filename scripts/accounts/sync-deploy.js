@@ -24,7 +24,7 @@ const {
 // ---------------------------------------------------------------------------
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..")
-const REPO = "funny-vibes/agent-vibes"
+const REPO = "fjiangming/agent-vibes"
 
 // ---------------------------------------------------------------------------
 // Helpers

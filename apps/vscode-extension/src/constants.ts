@@ -5,7 +5,7 @@
 // Extension identifiers
 export const EXTENSION_ID = "cursor-proxy"
 export const EXTENSION_DISPLAY_NAME = "Cursor Proxy"
-export const GITHUB_REPO = "funny-vibes/agent-vibes"
+export const GITHUB_REPO = "fjiangming/agent-vibes"
 export const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 export const GITHUB_RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 

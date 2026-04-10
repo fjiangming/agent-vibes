@@ -13,7 +13,7 @@ const packageJson = JSON.parse(
   fs.readFileSync(path.join(extensionRoot, "package.json"), "utf-8")
 )
 
-const publisher = packageJson.publisher || "funny-vibes"
+const publisher = packageJson.publisher || "epfff"
 const extensionName = packageJson.name || "agent-vibes"
 const version = packageJson.version || "0.1.0"
 
