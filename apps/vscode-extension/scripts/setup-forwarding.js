@@ -747,10 +747,7 @@ function netshEnable() {
   // 1. Add loopback address (Windows uses netsh)
   const ifaceInfo = run("netsh interface ip show address loopback", true)
   if (!ifaceInfo.includes(LOOPBACK_IP)) {
-    run(
-      `netsh interface ip add address "Loopback" ${LOOPBACK_IP} 255.255.255.255`,
-      true
-    )
+    run(`netsh interface ip add address 1 ${LOOPBACK_IP} 255.255.255.255`, true)
     console.log(`${GREEN}✓${NC} Added loopback alias: ${LOOPBACK_IP}`)
   } else {
     console.log(`${YELLOW}⊘${NC} Loopback alias already exists: ${LOOPBACK_IP}`)
@@ -785,7 +782,7 @@ function netshDisable() {
   console.log(`${GREEN}✓${NC} Removed port proxy rule`)
 
   // 2. Remove loopback address
-  run(`netsh interface ip delete address "Loopback" ${LOOPBACK_IP}`, true)
+  run(`netsh interface ip delete address 1 ${LOOPBACK_IP}`, true)
   console.log(`${GREEN}✓${NC} Removed loopback alias: ${LOOPBACK_IP}`)
 
   // 3. Clean hosts file
